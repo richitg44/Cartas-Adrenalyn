@@ -245,7 +245,8 @@ const INITIAL_OWNED = [
   468, 470, 473, 474,
 ];
 
-const STORAGE_KEY = "adrenalyn_tracker_v1";
+const STORAGE_KEY = "adrenalyn_tracker_v2";
+const LEGACY_STORAGE_KEY = "adrenalyn_tracker_v1";
 
 // Util: obtener grupo de una carta
 const getGroup = (n) => GROUPS.find(g => n >= g.start && n <= g.end);
@@ -265,6 +266,7 @@ const downloadText = (text, filename) => {
 
 export default function App() {
   const [counts, setCounts] = useState({});
+  const [bisCounts, setBisCounts] = useState({});
   const [view, setView] = useState("coleccion");
   const [quickInput, setQuickInput] = useState("");
   const [toast, setToast] = useState(null);
@@ -274,36 +276,65 @@ export default function App() {
   const [confirmReset, setConfirmReset] = useState(false);
   const inputRef = useRef(null);
 
-  // Carga inicial desde storage
+  // Carga inicial desde storage (con migración desde v1)
   useEffect(() => {
     (async () => {
       try {
         const result = await window.storage.get(STORAGE_KEY);
         if (result && result.value) {
-          setCounts(JSON.parse(result.value));
+          const data = JSON.parse(result.value);
+          setCounts(data.counts || {});
+          setBisCounts(data.bisCounts || {});
         } else {
-          const init = {};
-          INITIAL_OWNED.forEach(n => { init[n] = 1; });
-          setCounts(init);
-          await window.storage.set(STORAGE_KEY, JSON.stringify(init));
+          // Intentar migrar desde v1
+          let legacy = null;
+          try {
+            legacy = await window.storage.get(LEGACY_STORAGE_KEY);
+          } catch {}
+          let initCounts;
+          if (legacy && legacy.value) {
+            initCounts = JSON.parse(legacy.value);
+          } else {
+            initCounts = {};
+            INITIAL_OWNED.forEach(n => { initCounts[n] = 1; });
+          }
+          setCounts(initCounts);
+          setBisCounts({});
+          await window.storage.set(
+            STORAGE_KEY,
+            JSON.stringify({ counts: initCounts, bisCounts: {} })
+          );
         }
       } catch (e) {
         const init = {};
         INITIAL_OWNED.forEach(n => { init[n] = 1; });
         setCounts(init);
+        setBisCounts({});
       }
       setLoaded(true);
     })();
   }, []);
 
-  // Guardar
-  const persist = async (newCounts) => {
-    setCounts(newCounts);
+  // Guardar: siempre persiste counts + bisCounts juntos
+  const saveAll = async (nextCounts, nextBis) => {
     try {
-      await window.storage.set(STORAGE_KEY, JSON.stringify(newCounts));
+      await window.storage.set(
+        STORAGE_KEY,
+        JSON.stringify({ counts: nextCounts, bisCounts: nextBis })
+      );
     } catch (e) {
       console.error(e);
     }
+  };
+
+  const persist = async (newCounts) => {
+    setCounts(newCounts);
+    await saveAll(newCounts, bisCounts);
+  };
+
+  const persistBis = async (newBis) => {
+    setBisCounts(newBis);
+    await saveAll(counts, newBis);
   };
 
   // Toast
@@ -312,36 +343,48 @@ export default function App() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Quick add: procesa input separado por espacios/comas
+  // Quick add: procesa input separado por espacios/comas.
+  // Acepta también sufijo "b" o "bis" para la cara reversa (ej. "47b", "47bis").
   const handleQuickAdd = () => {
     const raw = quickInput.trim();
     if (!raw) return;
-    const nums = raw.split(/[\s,.;]+/)
-      .map(s => parseInt(s, 10))
-      .filter(n => !isNaN(n) && n >= 1 && n <= 478);
-    if (nums.length === 0) {
-      showToast("Número no válido (1-478)", "error");
+    const tokens = raw.split(/[\s,.;]+/).filter(Boolean);
+    const parsed = tokens.map(t => {
+      const m = t.match(/^(\d+)(b|bis)?$/i);
+      if (!m) return null;
+      const n = parseInt(m[1], 10);
+      if (isNaN(n) || n < 1 || n > 478) return null;
+      return { n, bis: !!m[2] };
+    }).filter(Boolean);
+    if (parsed.length === 0) {
+      showToast("Número no válido (1-478, opcional sufijo 'b' o 'bis')", "error");
       return;
     }
     const newCounts = { ...counts };
+    const newBis = { ...bisCounts };
     let added = 0, duplicated = 0;
     const details = [];
-    nums.forEach(n => {
-      const current = newCounts[n] || 0;
-      newCounts[n] = current + 1;
+    parsed.forEach(({ n, bis }) => {
+      const target = bis ? newBis : newCounts;
+      const current = target[n] || 0;
+      target[n] = current + 1;
       const card = CARDS.find(c => c[0] === n);
+      const label = card ? card[1] : "";
+      const tag = bis ? " BIS" : "";
       if (current === 0) {
         added++;
-        details.push(`✓ #${n} ${card ? card[1] : ""}`);
+        details.push(`✓ #${n}${tag} ${label}`);
       } else {
         duplicated++;
-        details.push(`⚠ #${n} repetida (x${current + 1})`);
+        details.push(`⚠ #${n}${tag} repetida (x${current + 1})`);
       }
     });
-    persist(newCounts);
+    setCounts(newCounts);
+    setBisCounts(newBis);
+    saveAll(newCounts, newBis);
     setQuickInput("");
     let summary = "";
-    if (nums.length === 1) {
+    if (parsed.length === 1) {
       summary = details[0];
     } else {
       summary = `${added} nueva${added !== 1 ? "s" : ""} · ${duplicated} repe${duplicated !== 1 ? "s" : ""}`;
@@ -377,6 +420,33 @@ export default function App() {
     persist(newCounts);
   };
 
+  const incBis = (n) => {
+    const next = { ...bisCounts };
+    next[n] = (next[n] || 0) + 1;
+    persistBis(next);
+  };
+
+  const decBis = (n) => {
+    const next = { ...bisCounts };
+    const current = next[n] || 0;
+    if (current <= 1) {
+      delete next[n];
+    } else {
+      next[n] = current - 1;
+    }
+    persistBis(next);
+  };
+
+  const setBisCardCount = (n, count) => {
+    const next = { ...bisCounts };
+    if (count <= 0) {
+      delete next[n];
+    } else {
+      next[n] = count;
+    }
+    persistBis(next);
+  };
+
   // Estadísticas
   const stats = useMemo(() => {
     const total = 478;
@@ -384,8 +454,19 @@ export default function App() {
     const duplicates = Object.entries(counts)
       .filter(([, c]) => c > 1)
       .reduce((sum, [, c]) => sum + (c - 1), 0);
-    return { total, owned, missing: total - owned, duplicates };
-  }, [counts]);
+    const bisOwned = Object.values(bisCounts).filter(c => c > 0).length;
+    const bisDuplicates = Object.entries(bisCounts)
+      .filter(([, c]) => c > 1)
+      .reduce((sum, [, c]) => sum + (c - 1), 0);
+    return {
+      total,
+      owned,
+      missing: total - owned,
+      duplicates: duplicates + bisDuplicates,
+      bisOwned,
+      bisDuplicates,
+    };
+  }, [counts, bisCounts]);
 
   // Descargar faltantes
   const downloadMissing = () => {
@@ -415,25 +496,35 @@ export default function App() {
   const downloadDupes = () => {
     const dupes = Object.entries(counts)
       .filter(([, c]) => c > 1)
-      .map(([n, c]) => ({ n: parseInt(n), count: c }))
+      .map(([n, c]) => ({ n: parseInt(n), count: c, bis: false }))
+      .sort((a, b) => a.n - b.n);
+    const bisDupes = Object.entries(bisCounts)
+      .filter(([, c]) => c > 1)
+      .map(([n, c]) => ({ n: parseInt(n), count: c, bis: true }))
       .sort((a, b) => a.n - b.n);
     let text = "CARTAS REPETIDAS PARA INTERCAMBIO — Adrenalyn XL LaLiga 2025-26\n";
     text += "=".repeat(65) + "\n";
     text += `Total de cartas repetidas: ${stats.duplicates}\n\n`;
-    if (dupes.length === 0) {
+    const allDupes = [...dupes, ...bisDupes];
+    if (allDupes.length === 0) {
       text += "No tengo cartas repetidas actualmente.\n";
     } else {
       GROUPS.forEach(g => {
         const groupDupes = dupes.filter(d => d.n >= g.start && d.n <= g.end);
-        if (groupDupes.length > 0) {
-          text += `\n${g.name}\n`;
-          text += "-".repeat(g.name.length + 5) + "\n";
-          groupDupes.forEach(d => {
-            const card = CARDS.find(c => c[0] === d.n);
-            const extras = d.count - 1;
-            text += `  ${d.n} ${card ? card[1] : ""}  (tengo ${d.count}, ${extras} para cambiar)\n`;
-          });
-        }
+        const groupBis = bisDupes.filter(d => d.n >= g.start && d.n <= g.end);
+        if (groupDupes.length === 0 && groupBis.length === 0) return;
+        text += `\n${g.name}\n`;
+        text += "-".repeat(g.name.length + 5) + "\n";
+        groupDupes.forEach(d => {
+          const card = CARDS.find(c => c[0] === d.n);
+          const extras = d.count - 1;
+          text += `  ${d.n} ${card ? card[1] : ""}  (tengo ${d.count}, ${extras} para cambiar)\n`;
+        });
+        groupBis.forEach(d => {
+          const card = CARDS.find(c => c[0] === d.n);
+          const extras = d.count - 1;
+          text += `  ${d.n}bis ${card ? card[1] : ""}  (tengo ${d.count}, ${extras} para cambiar)\n`;
+        });
       });
     }
     const date = new Date().toISOString().slice(0, 10);
@@ -463,6 +554,12 @@ export default function App() {
       .forEach(([n, c]) => {
         parts.push(`${n} (x${c - 1})`);
       });
+    Object.entries(bisCounts)
+      .filter(([, c]) => c > 1)
+      .sort((a, b) => parseInt(a[0]) - parseInt(b[0]))
+      .forEach(([n, c]) => {
+        parts.push(`${n}bis (x${c - 1})`);
+      });
     try {
       await navigator.clipboard.writeText(parts.join(", "));
       showToast(`${parts.length} repetidas copiadas`);
@@ -472,7 +569,9 @@ export default function App() {
   };
 
   const resetAll = async () => {
-    await persist({});
+    setCounts({});
+    setBisCounts({});
+    await saveAll({}, {});
     setConfirmReset(false);
     showToast("Colección reiniciada");
   };
@@ -498,8 +597,10 @@ export default function App() {
   }, [counts]);
 
   const dupeCards = useMemo(() => {
-    return CARDS.filter(c => (counts[c[0]] || 0) > 1);
-  }, [counts]);
+    return CARDS.filter(c =>
+      (counts[c[0]] || 0) > 1 || (bisCounts[c[0]] || 0) > 1
+    );
+  }, [counts, bisCounts]);
 
   if (!loaded) {
     return (
@@ -534,6 +635,11 @@ export default function App() {
               <div className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">
                 {Math.round((stats.owned / stats.total) * 100)}% completo
               </div>
+              {stats.bisOwned > 0 && (
+                <div className="text-[10px] text-cyan-400 uppercase tracking-wider mt-0.5 font-semibold">
+                  +{stats.bisOwned} bis
+                </div>
+              )}
             </div>
           </div>
 
@@ -576,7 +682,7 @@ export default function App() {
             </button>
           </div>
           <p className="text-[10px] text-slate-500 mt-1.5 px-1">
-            Puedes meter varios separados por espacios o comas: <span className="text-slate-400">12, 47, 130</span>
+            Separa con espacios o comas. Añade <span className="text-cyan-400">b</span> o <span className="text-cyan-400">bis</span> para la reversa: <span className="text-slate-400">12, 47b, 130bis</span>
           </p>
         </div>
       </header>
@@ -615,9 +721,13 @@ export default function App() {
           <ColeccionView
             cards={filteredCards}
             counts={counts}
+            bisCounts={bisCounts}
             onInc={incCard}
             onDec={decCard}
             onSetCount={setCardCount}
+            onBisInc={incBis}
+            onBisDec={decBis}
+            onBisSetCount={setBisCardCount}
             searchTerm={searchTerm}
             setSearchTerm={setSearchTerm}
             groupFilter={groupFilter}
@@ -639,9 +749,13 @@ export default function App() {
           <RepetidasView
             dupeCards={dupeCards}
             counts={counts}
+            bisCounts={bisCounts}
             onInc={incCard}
             onDec={decCard}
             onSetCount={setCardCount}
+            onBisInc={incBis}
+            onBisDec={decBis}
+            onBisSetCount={setBisCardCount}
             onDownload={downloadDupes}
             onCopy={copyDupes}
           />
@@ -702,7 +816,7 @@ export default function App() {
 }
 
 // ========== VISTA COLECCIÓN ==========
-function ColeccionView({ cards, counts, onInc, onDec, onSetCount, searchTerm, setSearchTerm, groupFilter, setGroupFilter, onReset }) {
+function ColeccionView({ cards, counts, bisCounts, onInc, onDec, onSetCount, onBisInc, onBisDec, onBisSetCount, searchTerm, setSearchTerm, groupFilter, setGroupFilter, onReset }) {
   const [groupMenuOpen, setGroupMenuOpen] = useState(false);
   const currentGroup = groupFilter === "all"
     ? { name: "Todos los equipos" }
@@ -776,9 +890,13 @@ function ColeccionView({ cards, counts, onInc, onDec, onSetCount, searchTerm, se
               number={c[0]}
               name={c[1]}
               count={counts[c[0]] || 0}
+              bisCount={bisCounts[c[0]] || 0}
               onInc={() => onInc(c[0])}
               onDec={() => onDec(c[0])}
               onSetCount={(n) => onSetCount(c[0], n)}
+              onBisInc={() => onBisInc(c[0])}
+              onBisDec={() => onBisDec(c[0])}
+              onBisSetCount={(n) => onBisSetCount(c[0], n)}
             />
           ))
         )}
@@ -862,7 +980,7 @@ function FaltantesView({ missingCards, onInc, onDownload, onCopy }) {
 }
 
 // ========== VISTA REPETIDAS ==========
-function RepetidasView({ dupeCards, counts, onInc, onDec, onSetCount, onDownload, onCopy }) {
+function RepetidasView({ dupeCards, counts, bisCounts, onInc, onDec, onSetCount, onBisInc, onBisDec, onBisSetCount, onDownload, onCopy }) {
   return (
     <div>
       <div className="grid grid-cols-2 gap-2 mb-4">
@@ -902,22 +1020,22 @@ function RepetidasView({ dupeCards, counts, onInc, onDec, onSetCount, onDownload
                   <h3 className="font-bold text-sm text-slate-200">{g.name}</h3>
                 </div>
                 <div className="space-y-1">
-                  {dupes.map(c => {
-                    const count = counts[c[0]];
-                    const extras = count - 1;
-                    return (
-                      <CardRow
-                        key={c[0]}
-                        number={c[0]}
-                        name={c[1]}
-                        count={count}
-                        onInc={() => onInc(c[0])}
-                        onDec={() => onDec(c[0])}
-                        onSetCount={(n) => onSetCount(c[0], n)}
-                        showExtras
-                      />
-                    );
-                  })}
+                  {dupes.map(c => (
+                    <CardRow
+                      key={c[0]}
+                      number={c[0]}
+                      name={c[1]}
+                      count={counts[c[0]] || 0}
+                      bisCount={bisCounts[c[0]] || 0}
+                      onInc={() => onInc(c[0])}
+                      onDec={() => onDec(c[0])}
+                      onSetCount={(n) => onSetCount(c[0], n)}
+                      onBisInc={() => onBisInc(c[0])}
+                      onBisDec={() => onBisDec(c[0])}
+                      onBisSetCount={(n) => onBisSetCount(c[0], n)}
+                      showExtras
+                    />
+                  ))}
                 </div>
               </div>
             );
@@ -929,12 +1047,23 @@ function RepetidasView({ dupeCards, counts, onInc, onDec, onSetCount, onDownload
 }
 
 // ========== FILA DE CARTA ==========
-function CardRow({ number, name, count, onInc, onDec, onSetCount, showExtras }) {
+function CardRow({
+  number, name, count, bisCount = 0,
+  onInc, onDec, onSetCount,
+  onBisInc, onBisDec, onBisSetCount,
+  showExtras,
+}) {
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState(count.toString());
+  const [editingBis, setEditingBis] = useState(false);
+  const [editBisValue, setEditBisValue] = useState(bisCount.toString());
   const group = getGroup(number);
   const owned = count > 0;
   const hasDupes = count > 1;
+  const bisOwned = bisCount > 0;
+  const bisHasDupes = bisCount > 1;
+  const anyOwned = owned || bisOwned;
+  const anyDupes = hasDupes || bisHasDupes;
 
   const handleSaveEdit = () => {
     const n = parseInt(editValue, 10);
@@ -944,85 +1073,176 @@ function CardRow({ number, name, count, onInc, onDec, onSetCount, showExtras }) 
     setEditing(false);
   };
 
+  const handleSaveBisEdit = () => {
+    const n = parseInt(editBisValue, 10);
+    if (!isNaN(n) && n >= 0 && onBisSetCount) {
+      onBisSetCount(n);
+    }
+    setEditingBis(false);
+  };
+
+  const bisAvailable = typeof onBisInc === "function";
+
   return (
     <div
-      className={`flex items-center gap-2 rounded-lg border transition-colors ${
-        hasDupes
+      className={`flex rounded-lg border transition-colors ${
+        anyDupes
           ? "bg-amber-500/10 border-amber-500/30"
-          : owned
+          : anyOwned
           ? "bg-emerald-500/5 border-emerald-500/20"
           : "bg-slate-900/50 border-slate-800"
       }`}
     >
       <div
-        className="w-1 self-stretch rounded-l-lg"
+        className="w-1 self-stretch rounded-l-lg flex-shrink-0"
         style={{ backgroundColor: group?.color || "#334155" }}
       />
-      <div className="flex-1 flex items-center gap-2 py-2 pr-2 min-w-0">
-        <div className={`text-xs font-mono w-10 flex-shrink-0 ${owned ? "text-slate-300" : "text-slate-600"}`}>
-          #{number}
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className={`text-sm truncate ${owned ? "text-slate-100 font-medium" : "text-slate-500"}`}>
-            {name}
+      <div className="flex-1 min-w-0 py-2 pr-2 pl-2">
+        {/* Fila principal: carta normal */}
+        <div className="flex items-center gap-2 min-w-0">
+          <div className={`text-xs font-mono w-10 flex-shrink-0 ${owned ? "text-slate-300" : "text-slate-600"}`}>
+            #{number}
           </div>
-          {showExtras && (
-            <div className="text-[10px] text-amber-400/80 uppercase tracking-wider font-semibold">
-              {count - 1} para intercambiar · tengo {count}
+          <div className="flex-1 min-w-0">
+            <div className={`text-sm truncate ${owned ? "text-slate-100 font-medium" : "text-slate-500"}`}>
+              {name}
+            </div>
+            {showExtras && hasDupes && (
+              <div className="text-[10px] text-amber-400/80 uppercase tracking-wider font-semibold">
+                {count - 1} para intercambiar · tengo {count}
+              </div>
+            )}
+          </div>
+
+          {editing ? (
+            <div className="flex items-center gap-1">
+              <input
+                type="number"
+                min="0"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && handleSaveEdit()}
+                autoFocus
+                className="w-14 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-center"
+              />
+              <button
+                onClick={handleSaveEdit}
+                className="bg-emerald-500 text-white p-1 rounded"
+              >
+                <Check size={14} />
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                onClick={onDec}
+                disabled={count === 0}
+                className={`p-1.5 rounded-md transition-colors ${
+                  count === 0
+                    ? "text-slate-700 cursor-not-allowed"
+                    : "bg-slate-800 hover:bg-slate-700 text-slate-300"
+                }`}
+              >
+                <Minus size={14} />
+              </button>
+              <button
+                onClick={() => { setEditValue(count.toString()); setEditing(true); }}
+                className={`min-w-[36px] px-2 py-1 rounded-md text-sm font-bold ${
+                  hasDupes
+                    ? "bg-amber-500 text-slate-900"
+                    : owned
+                    ? "bg-emerald-500/20 text-emerald-300"
+                    : "bg-slate-800 text-slate-500"
+                }`}
+                title="Tocar para editar"
+              >
+                {count}
+              </button>
+              <button
+                onClick={onInc}
+                className="p-1.5 rounded-md bg-orange-500/20 hover:bg-orange-500/30 text-orange-300"
+              >
+                <Plus size={14} />
+              </button>
             </div>
           )}
         </div>
 
-        {editing ? (
-          <div className="flex items-center gap-1">
-            <input
-              type="number"
-              min="0"
-              value={editValue}
-              onChange={(e) => setEditValue(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleSaveEdit()}
-              autoFocus
-              className="w-14 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-sm text-center"
-            />
-            <button
-              onClick={handleSaveEdit}
-              className="bg-emerald-500 text-white p-1 rounded"
-            >
-              <Check size={14} />
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-1 flex-shrink-0">
-            <button
-              onClick={onDec}
-              disabled={count === 0}
-              className={`p-1.5 rounded-md transition-colors ${
-                count === 0
-                  ? "text-slate-700 cursor-not-allowed"
-                  : "bg-slate-800 hover:bg-slate-700 text-slate-300"
-              }`}
-            >
-              <Minus size={14} />
-            </button>
-            <button
-              onClick={() => { setEditValue(count.toString()); setEditing(true); }}
-              className={`min-w-[36px] px-2 py-1 rounded-md text-sm font-bold ${
-                hasDupes
-                  ? "bg-amber-500 text-slate-900"
-                  : owned
-                  ? "bg-emerald-500/20 text-emerald-300"
-                  : "bg-slate-800 text-slate-500"
-              }`}
-              title="Tocar para editar"
-            >
-              {count}
-            </button>
-            <button
-              onClick={onInc}
-              className="p-1.5 rounded-md bg-orange-500/20 hover:bg-orange-500/30 text-orange-300"
-            >
-              <Plus size={14} />
-            </button>
+        {/* Sub-fila: versión BIS (reversa) */}
+        {bisAvailable && (
+          <div className="flex items-center gap-2 min-w-0 mt-1.5 pt-1.5 border-t border-slate-800/70">
+            <div className="w-10 flex-shrink-0" />
+            <div className="flex-1 min-w-0 flex items-center gap-2">
+              <span
+                className={`text-[10px] font-black tracking-widest px-1.5 py-0.5 rounded ${
+                  bisHasDupes
+                    ? "bg-amber-500 text-slate-900"
+                    : bisOwned
+                    ? "bg-cyan-500/20 text-cyan-300"
+                    : "bg-slate-800 text-slate-500"
+                }`}
+              >
+                BIS
+              </span>
+              {showExtras && bisHasDupes && (
+                <span className="text-[10px] text-amber-400/80 uppercase tracking-wider font-semibold">
+                  {bisCount - 1} para intercambiar · tengo {bisCount}
+                </span>
+              )}
+            </div>
+
+            {editingBis ? (
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  min="0"
+                  value={editBisValue}
+                  onChange={(e) => setEditBisValue(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && handleSaveBisEdit()}
+                  autoFocus
+                  className="w-14 bg-slate-800 border border-slate-600 rounded px-2 py-1 text-xs text-center"
+                />
+                <button
+                  onClick={handleSaveBisEdit}
+                  className="bg-emerald-500 text-white p-1 rounded"
+                >
+                  <Check size={12} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 flex-shrink-0">
+                <button
+                  onClick={onBisDec}
+                  disabled={bisCount === 0}
+                  className={`p-1 rounded-md transition-colors ${
+                    bisCount === 0
+                      ? "text-slate-700 cursor-not-allowed"
+                      : "bg-slate-800 hover:bg-slate-700 text-slate-300"
+                  }`}
+                >
+                  <Minus size={12} />
+                </button>
+                <button
+                  onClick={() => { setEditBisValue(bisCount.toString()); setEditingBis(true); }}
+                  className={`min-w-[30px] px-1.5 py-0.5 rounded-md text-xs font-bold ${
+                    bisHasDupes
+                      ? "bg-amber-500 text-slate-900"
+                      : bisOwned
+                      ? "bg-cyan-500/20 text-cyan-300"
+                      : "bg-slate-800 text-slate-600"
+                  }`}
+                  title="Tocar para editar"
+                >
+                  {bisCount}
+                </button>
+                <button
+                  onClick={onBisInc}
+                  className="p-1 rounded-md bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300"
+                >
+                  <Plus size={12} />
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
