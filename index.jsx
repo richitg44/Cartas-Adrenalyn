@@ -440,100 +440,101 @@ const downloadText = (text, filename) => {
   URL.revokeObjectURL(url);
 };
 
-// Dibuja un listado (faltantes / repetidas) en un canvas y lo descarga como JPG
-// con ancho fijo (óptimo para subir a Wallapop). La altura se calcula dinámicamente.
-// `sections` = [{ title, color, items: [string] }].
-const downloadListAsJpg = ({ title, subtitle, sections, footer, filename }) => {
-  const W = 1080;
-  const PAD_X = 48;
-  const PAD_TOP = 56;
-  const PAD_BOTTOM = 56;
-  const FONT = `"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
-  const TITLE_SIZE = 56;
-  const SUBTITLE_SIZE = 26;
-  const SECTION_SIZE = 32;
-  const ITEM_SIZE = 24;
-  const LINE_GAP = 14;
-  const SECTION_GAP = 34;
-  const ITEM_H = ITEM_SIZE + LINE_GAP;
+// Convierte "#RRGGBB" en {r,g,b} para jsPDF (que usa canales 0-255).
+const hexToRgb = (hex) => {
+  const m = /^#?([A-Fa-f0-9]{6})$/.exec(hex || "");
+  if (!m) return { r: 15, g: 23, b: 42 };
+  const n = parseInt(m[1], 16);
+  return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
+};
 
-  // Calcular altura total
-  let H = PAD_TOP + TITLE_SIZE + 14 + SUBTITLE_SIZE + 30;
-  sections.forEach(s => {
-    H += SECTION_SIZE + 12 + s.items.length * ITEM_H + SECTION_GAP;
-  });
-  if (footer) H += 40;
-  H += PAD_BOTTOM;
+// Genera un PDF A4 multi-página con el listado (faltantes / repetidas).
+// Se pagina automáticamente en A4 vertical. `sections` = [{ title, color, items: [string] }].
+const downloadListAsPdf = async ({ title, subtitle, sections, filename }) => {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
 
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const ctx = canvas.getContext("2d");
+  const PAGE_W = 210;
+  const PAGE_H = 297;
+  const MARGIN = 15;
+  const CONTENT_W = PAGE_W - MARGIN * 2;
+  const BOTTOM_LIMIT = PAGE_H - 18;
+  const FOOTER_Y = PAGE_H - 8;
 
-  // Fondo blanco
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, W, H);
+  const drawPageChrome = (pageNum) => {
+    // Banda superior naranja (acento)
+    doc.setFillColor(249, 115, 22);
+    doc.rect(0, 0, PAGE_W, 3, "F");
+    // Pie de página
+    doc.setTextColor(148, 163, 184);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text("Adrenalyn XL LaLiga 2025-26", MARGIN, FOOTER_Y);
+    doc.text(`Página ${pageNum}`, PAGE_W - MARGIN, FOOTER_Y, { align: "right" });
+  };
 
-  // Banda superior
-  ctx.fillStyle = "#F97316";
-  ctx.fillRect(0, 0, W, 12);
+  let pageNum = 1;
+  drawPageChrome(pageNum);
 
-  let y = PAD_TOP + TITLE_SIZE;
-  ctx.textBaseline = "alphabetic";
-  ctx.font = `900 ${TITLE_SIZE}px ${FONT}`;
-  ctx.fillStyle = "#0F172A";
-  ctx.fillText(title, PAD_X, y);
-  y += 16 + SUBTITLE_SIZE;
-  ctx.font = `500 ${SUBTITLE_SIZE}px ${FONT}`;
-  ctx.fillStyle = "#64748B";
-  ctx.fillText(subtitle, PAD_X, y);
-  y += 30;
+  // Cabecera primera página
+  let y = MARGIN + 6;
+  doc.setTextColor(15, 23, 42);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(22);
+  doc.text(title, MARGIN, y);
+  y += 8;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(11);
+  doc.setTextColor(100, 116, 139);
+  doc.text(subtitle, MARGIN, y);
+  y += 10;
 
-  sections.forEach(s => {
-    // Barra de color a la izquierda del título de sección
-    ctx.fillStyle = s.color || "#0F172A";
-    ctx.fillRect(PAD_X, y - SECTION_SIZE + 6, 6, SECTION_SIZE);
-    ctx.font = `800 ${SECTION_SIZE}px ${FONT}`;
-    ctx.fillStyle = "#0F172A";
-    ctx.fillText(s.title, PAD_X + 18, y);
-    y += 12;
+  const newPage = () => {
+    doc.addPage();
+    pageNum++;
+    drawPageChrome(pageNum);
+    y = MARGIN + 4;
+  };
 
-    ctx.font = `500 ${ITEM_SIZE}px ${FONT}`;
-    s.items.forEach(item => {
-      y += ITEM_H;
-      // Truncar si se pasa del ancho disponible
-      const maxW = W - PAD_X * 2 - 20;
-      let text = item;
-      if (ctx.measureText(text).width > maxW) {
-        while (text.length > 0 && ctx.measureText(text + "…").width > maxW) {
-          text = text.slice(0, -1);
-        }
-        text = text + "…";
-      }
-      ctx.fillStyle = "#1E293B";
-      ctx.fillText(text, PAD_X + 20, y);
+  const ensure = (needed) => {
+    if (y + needed > BOTTOM_LIMIT) newPage();
+  };
+
+  sections.forEach(section => {
+    ensure(12);
+    // Barrita de color
+    const c = hexToRgb(section.color);
+    doc.setFillColor(c.r, c.g, c.b);
+    doc.rect(MARGIN, y - 3.5, 2.2, 5.5, "F");
+    // Título de sección
+    doc.setTextColor(15, 23, 42);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text(section.title, MARGIN + 5, y);
+    y += 6;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(30, 41, 59);
+    section.items.forEach(item => {
+      const lines = doc.splitTextToSize(item, CONTENT_W - 8);
+      const lineH = 4.6;
+      ensure(lines.length * lineH);
+      doc.text(lines, MARGIN + 8, y);
+      y += lines.length * lineH;
     });
-    y += SECTION_GAP;
+    y += 5;
   });
 
-  if (footer) {
-    y += 10;
-    ctx.font = `500 20px ${FONT}`;
-    ctx.fillStyle = "#94A3B8";
-    ctx.fillText(footer, PAD_X, y);
-  }
-
-  canvas.toBlob((blob) => {
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  }, "image/jpeg", 0.92);
+  const blob = doc.output("blob");
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 };
 
 export default function App() {
@@ -1006,8 +1007,8 @@ export default function App() {
     showToast("Lista de faltantes descargada");
   };
 
-  // Descargar faltantes como imagen JPG (formato óptimo para Wallapop)
-  const downloadMissingImage = () => {
+  // Descargar faltantes como PDF A4 multi-página (óptimo para Wallapop/imprimir)
+  const downloadMissingPdf = async () => {
     const sections = [];
     GROUPS.forEach(g => {
       const items = [];
@@ -1031,14 +1032,18 @@ export default function App() {
     }
     const bisTxt = missingBisCards.length > 0 ? ` · ${missingBisCards.length} BIS` : "";
     const date = new Date().toISOString().slice(0, 10);
-    downloadListAsJpg({
-      title: "CARTAS QUE ME FALTAN",
-      subtitle: `${stats.missing} normales${bisTxt} · Adrenalyn XL LaLiga 2025-26`,
-      sections,
-      footer: `Generado el ${date}`,
-      filename: `faltantes_adrenalyn_${date}.jpg`,
-    });
-    showToast("Imagen de faltantes descargada");
+    try {
+      await downloadListAsPdf({
+        title: "Cartas que me faltan",
+        subtitle: `${stats.missing} normales${bisTxt} · generado el ${date}`,
+        sections,
+        filename: `faltantes_adrenalyn_${date}.pdf`,
+      });
+      showToast("PDF de faltantes descargado");
+    } catch (e) {
+      console.error(e);
+      showToast("Error generando el PDF", "error");
+    }
   };
 
   // Descargar repetidas
@@ -1085,8 +1090,8 @@ export default function App() {
     showToast("Lista de repetidas descargada");
   };
 
-  // Descargar repetidas como imagen JPG (formato óptimo para Wallapop)
-  const downloadDupesImage = () => {
+  // Descargar repetidas como PDF A4 multi-página (óptimo para Wallapop/imprimir)
+  const downloadDupesPdf = async () => {
     const sections = [];
     GROUPS.forEach(g => {
       const items = [];
@@ -1112,14 +1117,18 @@ export default function App() {
       return;
     }
     const date = new Date().toISOString().slice(0, 10);
-    downloadListAsJpg({
-      title: "MIS CARTAS REPETIDAS",
-      subtitle: `${stats.duplicates} repetidas para intercambio · Adrenalyn XL LaLiga 2025-26`,
-      sections,
-      footer: `Generado el ${date} · Disponibles para cambio`,
-      filename: `repetidas_adrenalyn_${date}.jpg`,
-    });
-    showToast("Imagen de repetidas descargada");
+    try {
+      await downloadListAsPdf({
+        title: "Mis cartas repetidas",
+        subtitle: `${stats.duplicates} repetidas para intercambio · generado el ${date}`,
+        sections,
+        filename: `repetidas_adrenalyn_${date}.pdf`,
+      });
+      showToast("PDF de repetidas descargado");
+    } catch (e) {
+      console.error(e);
+      showToast("Error generando el PDF", "error");
+    }
   };
 
   // Copiar al portapapeles
@@ -1352,7 +1361,7 @@ export default function App() {
             onInc={incCard}
             onBisInc={incBis}
             onDownload={downloadMissing}
-            onDownloadImage={downloadMissingImage}
+            onDownloadPdf={downloadMissingPdf}
             onCopy={copyMissing}
           />
         )}
@@ -1369,7 +1378,7 @@ export default function App() {
             onBisDec={decBis}
             onBisSetCount={setBisCardCount}
             onDownload={downloadDupes}
-            onDownloadImage={downloadDupesImage}
+            onDownloadPdf={downloadDupesPdf}
             onCopy={copyDupes}
           />
         )}
@@ -1547,7 +1556,7 @@ function ColeccionView({ cards, counts, bisCounts, onInc, onDec, onSetCount, onB
 }
 
 // ========== VISTA FALTANTES ==========
-function FaltantesView({ missingCards, missingBisCards = [], onInc, onBisInc, onDownload, onDownloadImage, onCopy }) {
+function FaltantesView({ missingCards, missingBisCards = [], onInc, onBisInc, onDownload, onDownloadPdf, onCopy }) {
   const nothingMissing = missingCards.length === 0 && missingBisCards.length === 0;
   return (
     <div>
@@ -1560,11 +1569,11 @@ function FaltantesView({ missingCards, missingBisCards = [], onInc, onBisInc, on
           .txt
         </button>
         <button
-          onClick={onDownloadImage}
+          onClick={onDownloadPdf}
           className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
         >
           <Download size={14} className="text-emerald-400" />
-          Imagen
+          PDF
         </button>
         <button
           onClick={onCopy}
@@ -1644,7 +1653,7 @@ function FaltantesView({ missingCards, missingBisCards = [], onInc, onBisInc, on
 }
 
 // ========== VISTA REPETIDAS ==========
-function RepetidasView({ dupeCards, counts, bisCounts, onInc, onDec, onSetCount, onBisInc, onBisDec, onBisSetCount, onDownload, onDownloadImage, onCopy }) {
+function RepetidasView({ dupeCards, counts, bisCounts, onInc, onDec, onSetCount, onBisInc, onBisDec, onBisSetCount, onDownload, onDownloadPdf, onCopy }) {
   return (
     <div>
       <div className="grid grid-cols-3 gap-2 mb-4">
@@ -1656,11 +1665,11 @@ function RepetidasView({ dupeCards, counts, bisCounts, onInc, onDec, onSetCount,
           .txt
         </button>
         <button
-          onClick={onDownloadImage}
+          onClick={onDownloadPdf}
           className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
         >
           <Download size={14} className="text-emerald-400" />
-          Imagen
+          PDF
         </button>
         <button
           onClick={onCopy}
