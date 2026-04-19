@@ -2,7 +2,8 @@ import React, { useState, useEffect, useMemo, useRef } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Plus, Minus, Download, Search, X, Check,
-  AlertCircle, Copy, Trash2, RotateCcw, Edit2, ChevronDown
+  AlertCircle, Copy, Trash2, RotateCcw, Edit2, ChevronDown,
+  Cloud, CloudOff, Loader2, RefreshCw, Settings
 } from "lucide-react";
 
 // ============================================================
@@ -248,6 +249,55 @@ const INITIAL_OWNED = [
 
 const STORAGE_KEY = "adrenalyn_tracker_v2";
 const LEGACY_STORAGE_KEY = "adrenalyn_tracker_v1";
+const SYNC_KEY = "adrenalyn_sync_v1";
+const GIST_FILENAME = "adrenalyn-tracker.json";
+
+// ============================================================
+// GITHUB GIST API (sincronización opcional entre dispositivos)
+// ============================================================
+async function githubFetch(url, token, options = {}) {
+  const headers = {
+    "Accept": "application/vnd.github+json",
+    "Authorization": `Bearer ${token}`,
+    "X-GitHub-Api-Version": "2022-11-28",
+    ...(options.headers || {}),
+  };
+  if (options.body) headers["Content-Type"] = "application/json";
+  const res = await fetch(url, { ...options, headers });
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.text()).slice(0, 300); } catch {}
+    throw new Error(`${res.status} ${res.statusText}${detail ? " · " + detail : ""}`);
+  }
+  return res.json();
+}
+
+async function gistCreate(token, payload) {
+  return githubFetch("https://api.github.com/gists", token, {
+    method: "POST",
+    body: JSON.stringify({
+      description: "Adrenalyn XL LaLiga tracker",
+      public: false,
+      files: { [GIST_FILENAME]: { content: JSON.stringify(payload, null, 2) } },
+    }),
+  });
+}
+
+async function gistPull(token, gistId) {
+  const data = await githubFetch(`https://api.github.com/gists/${gistId}`, token);
+  const file = data.files?.[GIST_FILENAME];
+  if (!file) throw new Error(`No hay ${GIST_FILENAME} en el gist`);
+  return JSON.parse(file.content);
+}
+
+async function gistPush(token, gistId, payload) {
+  return githubFetch(`https://api.github.com/gists/${gistId}`, token, {
+    method: "PATCH",
+    body: JSON.stringify({
+      files: { [GIST_FILENAME]: { content: JSON.stringify(payload, null, 2) } },
+    }),
+  });
+}
 
 // Util: obtener grupo de una carta
 const getGroup = (n) => GROUPS.find(g => n >= g.start && n <= g.end);
@@ -276,6 +326,17 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [confirmReset, setConfirmReset] = useState(false);
   const inputRef = useRef(null);
+
+  // Sync con GitHub Gist
+  const [syncToken, setSyncToken] = useState("");
+  const [syncGistId, setSyncGistId] = useState("");
+  // idle | syncing | synced | error | disconnected
+  const [syncStatus, setSyncStatus] = useState("disconnected");
+  const [syncError, setSyncError] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const autoSaveTimerRef = useRef(null);
+  const skipNextAutoSyncRef = useRef(false);
+  const didInitialPullRef = useRef(false);
 
   // Carga inicial desde localStorage (con migración desde v1)
   useEffect(() => {
@@ -309,7 +370,74 @@ export default function App() {
       setBisCounts({});
     }
     setLoaded(true);
+
+    // Carga config de sync (token + gistId) si existe
+    try {
+      const rawSync = localStorage.getItem(SYNC_KEY);
+      if (rawSync) {
+        const { token, gistId } = JSON.parse(rawSync);
+        if (token) setSyncToken(token);
+        if (gistId) setSyncGistId(gistId);
+        if (token && gistId) setSyncStatus("idle");
+      }
+    } catch {}
   }, []);
+
+  // Pull inicial al arrancar si hay sync configurado
+  useEffect(() => {
+    if (!loaded) return;
+    if (didInitialPullRef.current) return;
+    if (!syncToken || !syncGistId) return;
+    didInitialPullRef.current = true;
+    (async () => {
+      setSyncStatus("syncing");
+      setSyncError("");
+      try {
+        const data = await gistPull(syncToken, syncGistId);
+        skipNextAutoSyncRef.current = true;
+        const nextCounts = data.counts || {};
+        const nextBis = data.bisCounts || {};
+        setCounts(nextCounts);
+        setBisCounts(nextBis);
+        try {
+          localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({ counts: nextCounts, bisCounts: nextBis })
+          );
+        } catch {}
+        setSyncStatus("synced");
+      } catch (e) {
+        setSyncStatus("error");
+        setSyncError(e.message);
+      }
+    })();
+  }, [loaded, syncToken, syncGistId]);
+
+  // Auto-save al gist con debounce de 1,5s cuando cambian los contadores
+  useEffect(() => {
+    if (!loaded) return;
+    if (!syncToken || !syncGistId) return;
+    if (skipNextAutoSyncRef.current) {
+      skipNextAutoSyncRef.current = false;
+      return;
+    }
+    clearTimeout(autoSaveTimerRef.current);
+    if (syncStatus !== "syncing") setSyncStatus("pending");
+    autoSaveTimerRef.current = setTimeout(async () => {
+      setSyncStatus("syncing");
+      setSyncError("");
+      try {
+        await gistPush(syncToken, syncGistId, {
+          counts, bisCounts, updatedAt: Date.now(),
+        });
+        setSyncStatus("synced");
+      } catch (e) {
+        setSyncStatus("error");
+        setSyncError(e.message);
+      }
+    }, 1500);
+    return () => clearTimeout(autoSaveTimerRef.current);
+  }, [counts, bisCounts, loaded, syncToken, syncGistId]);
 
   // Guardar: siempre persiste counts + bisCounts juntos
   const saveAll = (nextCounts, nextBis) => {
@@ -337,6 +465,130 @@ export default function App() {
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  // Sync: guarda token + gistId en localStorage
+  const persistSyncConfig = (token, gistId) => {
+    try {
+      if (token && gistId) {
+        localStorage.setItem(SYNC_KEY, JSON.stringify({ token, gistId }));
+      } else {
+        localStorage.removeItem(SYNC_KEY);
+      }
+    } catch {}
+  };
+
+  // Crea un gist nuevo con el estado actual y guarda el ID
+  const handleCreateGist = async (token) => {
+    if (!token) {
+      showToast("Introduce primero un token", "error");
+      return;
+    }
+    setSyncStatus("syncing");
+    setSyncError("");
+    try {
+      const payload = { counts, bisCounts, updatedAt: Date.now() };
+      const gist = await gistCreate(token, payload);
+      skipNextAutoSyncRef.current = true;
+      setSyncToken(token);
+      setSyncGistId(gist.id);
+      persistSyncConfig(token, gist.id);
+      setSyncStatus("synced");
+      showToast(`Gist creado · ID: ${gist.id.slice(0, 8)}…`);
+    } catch (e) {
+      setSyncStatus("error");
+      setSyncError(e.message);
+      showToast("Error al crear gist", "error");
+    }
+  };
+
+  // Conecta a un gist existente: descarga y reemplaza el estado local
+  const handleConnectGist = async (token, gistId) => {
+    if (!token || !gistId) {
+      showToast("Token y Gist ID son obligatorios", "error");
+      return;
+    }
+    setSyncStatus("syncing");
+    setSyncError("");
+    try {
+      const data = await gistPull(token, gistId);
+      const nextCounts = data.counts || {};
+      const nextBis = data.bisCounts || {};
+      skipNextAutoSyncRef.current = true;
+      setCounts(nextCounts);
+      setBisCounts(nextBis);
+      try {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ counts: nextCounts, bisCounts: nextBis })
+        );
+      } catch {}
+      setSyncToken(token);
+      setSyncGistId(gistId);
+      persistSyncConfig(token, gistId);
+      setSyncStatus("synced");
+      showToast("Conectado y colección descargada");
+    } catch (e) {
+      setSyncStatus("error");
+      setSyncError(e.message);
+      showToast("No se pudo conectar al gist", "error");
+    }
+  };
+
+  // Sincroniza ahora (push manual)
+  const handleSyncNow = async () => {
+    if (!syncToken || !syncGistId) return;
+    clearTimeout(autoSaveTimerRef.current);
+    setSyncStatus("syncing");
+    setSyncError("");
+    try {
+      await gistPush(syncToken, syncGistId, {
+        counts, bisCounts, updatedAt: Date.now(),
+      });
+      setSyncStatus("synced");
+      showToast("Sincronizado con el gist");
+    } catch (e) {
+      setSyncStatus("error");
+      setSyncError(e.message);
+      showToast("Error al sincronizar", "error");
+    }
+  };
+
+  // Pull manual (trae lo último del gist sobreescribiendo lo local)
+  const handlePullNow = async () => {
+    if (!syncToken || !syncGistId) return;
+    setSyncStatus("syncing");
+    setSyncError("");
+    try {
+      const data = await gistPull(syncToken, syncGistId);
+      const nextCounts = data.counts || {};
+      const nextBis = data.bisCounts || {};
+      skipNextAutoSyncRef.current = true;
+      setCounts(nextCounts);
+      setBisCounts(nextBis);
+      try {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ counts: nextCounts, bisCounts: nextBis })
+        );
+      } catch {}
+      setSyncStatus("synced");
+      showToast("Descargado desde el gist");
+    } catch (e) {
+      setSyncStatus("error");
+      setSyncError(e.message);
+      showToast("Error al descargar", "error");
+    }
+  };
+
+  const handleDisconnect = () => {
+    clearTimeout(autoSaveTimerRef.current);
+    setSyncToken("");
+    setSyncGistId("");
+    persistSyncConfig("", "");
+    setSyncStatus("disconnected");
+    setSyncError("");
+    showToast("Desconectado de GitHub Gist");
   };
 
   // Quick add: procesa input separado por espacios/comas.
@@ -624,18 +876,24 @@ export default function App() {
                 LaLiga 2025-26 · Mi colección
               </p>
             </div>
-            <div className="text-right">
-              <div className="text-2xl font-black text-orange-500 leading-none">
-                {stats.owned}<span className="text-slate-600 text-lg">/{stats.total}</span>
-              </div>
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">
-                {Math.round((stats.owned / stats.total) * 100)}% completo
-              </div>
-              {stats.bisOwned > 0 && (
-                <div className="text-[10px] text-cyan-400 uppercase tracking-wider mt-0.5 font-semibold">
-                  +{stats.bisOwned} bis
+            <div className="flex items-start gap-2">
+              <SyncBadge
+                status={syncStatus}
+                onClick={() => setSettingsOpen(true)}
+              />
+              <div className="text-right">
+                <div className="text-2xl font-black text-orange-500 leading-none">
+                  {stats.owned}<span className="text-slate-600 text-lg">/{stats.total}</span>
                 </div>
-              )}
+                <div className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">
+                  {Math.round((stats.owned / stats.total) * 100)}% completo
+                </div>
+                {stats.bisOwned > 0 && (
+                  <div className="text-[10px] text-cyan-400 uppercase tracking-wider mt-0.5 font-semibold">
+                    +{stats.bisOwned} bis
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -772,6 +1030,23 @@ export default function App() {
           {toast.type === "error" ? <AlertCircle size={18} className="flex-shrink-0 mt-0.5" /> : <Check size={18} className="flex-shrink-0 mt-0.5" />}
           <span className="whitespace-pre-line">{toast.msg}</span>
         </div>
+      )}
+
+      {/* Settings / sync modal */}
+      {settingsOpen && (
+        <SettingsModal
+          initialToken={syncToken}
+          initialGistId={syncGistId}
+          connected={!!(syncToken && syncGistId)}
+          status={syncStatus}
+          error={syncError}
+          onClose={() => setSettingsOpen(false)}
+          onCreateGist={handleCreateGist}
+          onConnect={handleConnectGist}
+          onSyncNow={handleSyncNow}
+          onPullNow={handlePullNow}
+          onDisconnect={handleDisconnect}
+        />
       )}
 
       {/* Reset confirm */}
@@ -1241,6 +1516,168 @@ function CardRow({
             )}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ========== INDICADOR DE SYNC EN CABECERA ==========
+function SyncBadge({ status, onClick }) {
+  const map = {
+    disconnected: { icon: <CloudOff size={14} />, label: "Sin sync", className: "bg-slate-800 text-slate-400 border-slate-700" },
+    idle:         { icon: <Cloud size={14} />,    label: "Listo",    className: "bg-slate-800 text-slate-300 border-slate-700" },
+    pending:      { icon: <Cloud size={14} />,    label: "Pendiente", className: "bg-amber-500/10 text-amber-300 border-amber-500/30" },
+    syncing:      { icon: <Loader2 size={14} className="animate-spin" />, label: "Sync…", className: "bg-cyan-500/10 text-cyan-300 border-cyan-500/30" },
+    synced:       { icon: <Cloud size={14} />,    label: "Sync OK", className: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" },
+    error:        { icon: <AlertCircle size={14} />, label: "Error", className: "bg-red-500/10 text-red-300 border-red-500/30" },
+  };
+  const s = map[status] || map.disconnected;
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[10px] font-bold uppercase tracking-wider ${s.className}`}
+      title="Ajustes de sincronización"
+    >
+      {s.icon}
+      <span>{s.label}</span>
+    </button>
+  );
+}
+
+// ========== MODAL DE AJUSTES / SYNC ==========
+function SettingsModal({
+  initialToken, initialGistId, connected, status, error,
+  onClose, onCreateGist, onConnect, onSyncNow, onPullNow, onDisconnect,
+}) {
+  const [tokenInput, setTokenInput] = useState(initialToken || "");
+  const [gistIdInput, setGistIdInput] = useState(initialGistId || "");
+  const [showToken, setShowToken] = useState(false);
+
+  const canCreate = tokenInput.trim().length > 20 && !connected;
+  const canConnect = tokenInput.trim().length > 20 && gistIdInput.trim().length > 0;
+  const busy = status === "syncing";
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full shadow-2xl my-8">
+        <div className="flex items-center justify-between p-5 border-b border-slate-800">
+          <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+            <Settings size={18} className="text-cyan-400" />
+            Sincronización GitHub Gist
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-slate-500 hover:text-slate-300 p-1"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="text-xs text-slate-400 leading-relaxed space-y-1.5">
+            <p>
+              Guarda tu colección en un <b>gist secreto</b> tuyo para verla en otros dispositivos.
+              El token y el ID se guardan solo en este navegador.
+            </p>
+            <p className="text-slate-500">
+              Crea un token fine-grained en <span className="text-slate-300">GitHub → Settings → Developer settings → Personal access tokens</span> con permiso solo <span className="text-slate-300">Gists: Read and write</span>.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">
+              Token personal (github_pat_…)
+            </label>
+            <div className="relative">
+              <input
+                type={showToken ? "text" : "password"}
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                placeholder="github_pat_..."
+                className="w-full bg-slate-800 border border-slate-700 focus:border-cyan-500 rounded-lg px-3 py-2 pr-10 text-xs font-mono placeholder-slate-600 focus:outline-none"
+                autoComplete="off"
+                spellCheck="false"
+              />
+              <button
+                onClick={() => setShowToken(!showToken)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-wider text-slate-500 hover:text-slate-300 font-bold"
+              >
+                {showToken ? "Ocultar" : "Ver"}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">
+              Gist ID {connected && <span className="text-emerald-400 normal-case tracking-normal">· conectado</span>}
+            </label>
+            <input
+              type="text"
+              value={gistIdInput}
+              onChange={(e) => setGistIdInput(e.target.value)}
+              placeholder="(vacío si vas a crear uno nuevo)"
+              className="w-full bg-slate-800 border border-slate-700 focus:border-cyan-500 rounded-lg px-3 py-2 text-xs font-mono placeholder-slate-600 focus:outline-none"
+              autoComplete="off"
+              spellCheck="false"
+            />
+            {connected && (
+              <p className="text-[10px] text-slate-500 mt-1">
+                Copia este ID en el otro dispositivo y pulsa <b>Conectar</b> allí.
+              </p>
+            )}
+          </div>
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-300 break-words">
+              {error}
+            </div>
+          )}
+
+          {!connected ? (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => onCreateGist(tokenInput.trim())}
+                disabled={!canCreate || busy}
+                className="py-2.5 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-600 rounded-lg text-sm font-semibold text-white"
+              >
+                Crear gist nuevo
+              </button>
+              <button
+                onClick={() => onConnect(tokenInput.trim(), gistIdInput.trim())}
+                disabled={!canConnect || busy}
+                className="py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 rounded-lg text-sm font-semibold text-white"
+              >
+                Conectar a gist
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={onSyncNow}
+                  disabled={busy}
+                  className="py-2.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 rounded-lg text-sm font-semibold text-white flex items-center justify-center gap-1.5"
+                >
+                  <RefreshCw size={14} /> Subir ahora
+                </button>
+                <button
+                  onClick={onPullNow}
+                  disabled={busy}
+                  className="py-2.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-lg text-sm font-semibold text-white flex items-center justify-center gap-1.5"
+                >
+                  <Download size={14} /> Descargar ahora
+                </button>
+              </div>
+              <button
+                onClick={onDisconnect}
+                className="w-full py-2 text-xs text-slate-500 hover:text-red-400 flex items-center justify-center gap-1"
+              >
+                <CloudOff size={14} />
+                Desconectar de este dispositivo
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
