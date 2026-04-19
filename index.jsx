@@ -881,7 +881,9 @@ export default function App() {
   const downloadMissing = () => {
     let text = "CARTAS QUE ME FALTAN — Adrenalyn XL LaLiga 2025-26\n";
     text += "=".repeat(55) + "\n";
-    text += `Total faltantes: ${stats.missing} de ${stats.total}\n\n`;
+    text += `Total faltantes: ${stats.missing} normales`;
+    if (missingBisCards.length > 0) text += ` · ${missingBisCards.length} BIS`;
+    text += `\n`;
     GROUPS.forEach(g => {
       const missing = [];
       for (let n = g.start; n <= g.end; n++) {
@@ -890,11 +892,18 @@ export default function App() {
           missing.push(`  ${n} ${card ? card[1] : ""}`);
         }
       }
-      if (missing.length > 0) {
-        text += `\n${g.name} (${missing.length})\n`;
-        text += "-".repeat(g.name.length + 10) + "\n";
-        text += missing.join("\n") + "\n";
-      }
+      const bisMissing = missingBisCards
+        .filter(b => b.number >= g.start && b.number <= g.end)
+        .map(b => {
+          const card = CARDS.find(c => c[0] === b.number);
+          const baseName = card ? card[1] : "";
+          return `  ${b.number}bis ${baseName} · ${b.bisName}`;
+        });
+      if (missing.length === 0 && bisMissing.length === 0) return;
+      text += `\n${g.name} (${missing.length}${bisMissing.length ? ` + ${bisMissing.length} bis` : ""})\n`;
+      text += "-".repeat(g.name.length + 10) + "\n";
+      if (missing.length > 0) text += missing.join("\n") + "\n";
+      if (bisMissing.length > 0) text += bisMissing.join("\n") + "\n";
     });
     const date = new Date().toISOString().slice(0, 10);
     downloadText(text, `faltantes_adrenalyn_${date}.txt`);
@@ -947,13 +956,14 @@ export default function App() {
 
   // Copiar al portapapeles
   const copyMissing = async () => {
-    const nums = [];
+    const tokens = [];
     for (let n = 1; n <= 522; n++) {
-      if (!counts[n] || counts[n] === 0) nums.push(n);
+      if (!counts[n] || counts[n] === 0) tokens.push(String(n));
     }
+    missingBisCards.forEach(b => tokens.push(`${b.number}b`));
     try {
-      await navigator.clipboard.writeText(nums.join(", "));
-      showToast(`${nums.length} números copiados`);
+      await navigator.clipboard.writeText(tokens.join(", "));
+      showToast(`${tokens.length} números copiados`);
     } catch {
       showToast("No se pudo copiar", "error");
     }
@@ -1008,6 +1018,13 @@ export default function App() {
   const missingCards = useMemo(() => {
     return CARDS.filter(c => !counts[c[0]] || counts[c[0]] === 0);
   }, [counts]);
+
+  const missingBisCards = useMemo(() => {
+    return Object.entries(BIS_NAMES)
+      .map(([n, bisName]) => ({ number: parseInt(n, 10), bisName }))
+      .filter(({ number }) => !(bisCounts[number] > 0))
+      .sort((a, b) => a.number - b.number);
+  }, [bisCounts]);
 
   const dupeCards = useMemo(() => {
     return CARDS.filter(c =>
@@ -1110,9 +1127,9 @@ export default function App() {
       <nav className="sticky top-[152px] z-10 bg-slate-950 border-b border-slate-800">
         <div className="flex">
           {[
-            { id: "coleccion", label: "Colección", count: stats.owned, color: "text-emerald-400" },
-            { id: "faltantes", label: "Faltantes", count: stats.missing, color: "text-red-400" },
-            { id: "repetidas", label: "Repetidas", count: stats.duplicates, color: "text-amber-400" },
+            { id: "coleccion", label: "Colección", count: stats.owned, color: "text-emerald-400", sub: stats.bisOwned > 0 ? `+${stats.bisOwned} bis` : "" },
+            { id: "faltantes", label: "Faltantes", count: stats.missing, color: "text-red-400", sub: missingBisCards.length > 0 ? `+${missingBisCards.length} bis` : "" },
+            { id: "repetidas", label: "Repetidas", count: stats.duplicates, color: "text-amber-400", sub: "" },
           ].map(tab => (
             <button
               key={tab.id}
@@ -1129,6 +1146,11 @@ export default function App() {
               <div className={`text-lg font-black ${view === tab.id ? tab.color : "text-slate-600"}`}>
                 {tab.count}
               </div>
+              {tab.sub && (
+                <div className="text-[9px] text-cyan-400/80 font-bold tracking-wider mt-0.5">
+                  {tab.sub}
+                </div>
+              )}
             </button>
           ))}
         </div>
@@ -1158,7 +1180,9 @@ export default function App() {
         {view === "faltantes" && (
           <FaltantesView
             missingCards={missingCards}
+            missingBisCards={missingBisCards}
             onInc={incCard}
+            onBisInc={incBis}
             onDownload={downloadMissing}
             onCopy={copyMissing}
           />
@@ -1353,7 +1377,8 @@ function ColeccionView({ cards, counts, bisCounts, onInc, onDec, onSetCount, onB
 }
 
 // ========== VISTA FALTANTES ==========
-function FaltantesView({ missingCards, onInc, onDownload, onCopy }) {
+function FaltantesView({ missingCards, missingBisCards = [], onInc, onBisInc, onDownload, onCopy }) {
+  const nothingMissing = missingCards.length === 0 && missingBisCards.length === 0;
   return (
     <div>
       <div className="grid grid-cols-2 gap-2 mb-4">
@@ -1373,29 +1398,32 @@ function FaltantesView({ missingCards, onInc, onDownload, onCopy }) {
         </button>
       </div>
 
-      {missingCards.length === 0 ? (
+      {nothingMissing ? (
         <div className="text-center py-16">
           <div className="text-6xl mb-3">🏆</div>
           <p className="text-emerald-400 font-bold text-lg">¡Colección completa!</p>
-          <p className="text-slate-500 text-sm mt-1">Ya tienes las 522 cartas</p>
+          <p className="text-slate-500 text-sm mt-1">Ya tienes las 522 cartas (y todas las BIS)</p>
         </div>
       ) : (
         <div className="space-y-4">
           {GROUPS.map(g => {
             const missing = missingCards.filter(c => c[0] >= g.start && c[0] <= g.end);
-            if (missing.length === 0) return null;
+            const bisMissing = missingBisCards.filter(b => b.number >= g.start && b.number <= g.end);
+            if (missing.length === 0 && bisMissing.length === 0) return null;
             return (
               <div key={g.id}>
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <div className="w-1 h-5 rounded-full" style={{ backgroundColor: g.color }} />
                   <h3 className="font-bold text-sm text-slate-200">{g.name}</h3>
-                  <span className="text-xs text-slate-500">({missing.length} faltantes)</span>
+                  <span className="text-xs text-slate-500">
+                    ({missing.length} faltantes{bisMissing.length > 0 ? ` · +${bisMissing.length} bis` : ""})
+                  </span>
                 </div>
                 <div className="space-y-1">
                   {missing.map(c => (
                     <div key={c[0]} className="flex items-center gap-2 bg-slate-900/50 border border-slate-800 rounded-lg px-3 py-2">
                       <div className="text-xs font-mono text-slate-500 w-10">#{c[0]}</div>
-                      <div className="flex-1 text-sm text-slate-300">{c[1]}</div>
+                      <div className="flex-1 text-sm text-slate-300 truncate">{c[1]}</div>
                       <button
                         onClick={() => onInc(c[0])}
                         className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-md p-1.5"
@@ -1405,6 +1433,29 @@ function FaltantesView({ missingCards, onInc, onDownload, onCopy }) {
                       </button>
                     </div>
                   ))}
+                  {bisMissing.map(b => {
+                    const card = CARDS.find(c => c[0] === b.number);
+                    const baseName = card ? card[1] : "";
+                    return (
+                      <div key={`bis-${b.number}`} className="flex items-center gap-2 bg-slate-900/50 border border-slate-800 rounded-lg px-3 py-2">
+                        <div className="text-xs font-mono text-slate-500 w-10">#{b.number}</div>
+                        <span className="text-[10px] font-black tracking-widest px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 flex-shrink-0">
+                          BIS
+                        </span>
+                        <div className="flex-1 min-w-0 text-sm text-slate-400 truncate" title={`${baseName} · ${b.bisName}`}>
+                          <span className="text-slate-500">{baseName} · </span>
+                          <span className="text-slate-200">{b.bisName}</span>
+                        </div>
+                        <button
+                          onClick={() => onBisInc && onBisInc(b.number)}
+                          className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-md p-1.5"
+                          title="Ya la tengo"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
