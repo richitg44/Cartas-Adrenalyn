@@ -210,6 +210,88 @@ const CARDS = [
   [521, "Courtois"], [522, "Pedri firmado"],
 ];
 
+// Nombres de las cartas bis conocidas. Si un número no aparece aquí,
+// la subfila muestra solo "BIS" sin nombre (comportamiento original).
+const BIS_NAMES = {
+  // D. Alavés
+  1: "Stadium Card Mendizorroza",
+  7: "Garcés", 8: "Yusi", 15: "Ángel Pérez", 16: "Calebe", 18: "Abde",
+  // Athletic Club
+  19: "Stadium Card San Mamés",
+  22: "Gorosabel", 29: "Selton", 30: "Rego", 32: "Robert Navarro",
+  // Atlético de Madrid
+  37: "Stadium Card Riyadh Air Metropolitano",
+  40: "Nahuel Molina", 41: "Pubill", 42: "Giménez", 44: "Galán",
+  46: "Obed Vargas", 47: "Johnny Cardoso", 48: "Rodri Mendoza",
+  51: "Raspadori", 54: "Lookman",
+  // FC Barcelona
+  55: "Stadium Card Spotify Nou Camp",
+  58: "Joao Cancelo", 60: "Gerard Martín", 63: "Marc Bernal",
+  64: "Cásado", 70: "Bardghji",
+  // Real Betis
+  73: "Stadium Card La Cartuja",
+  76: "Aitor Rubial", 82: "Deossa", 84: "Fidalgo", 85: "Marc Roca",
+  89: "Pablo García", 90: "Chimy Ávila",
+  // RC Celta
+  91: "Stadium Card Abanca Balaídos",
+  94: "Álvaro Núñez", 96: "Yoel Lago", 101: "Miguel Román",
+  102: "Vecino", 104: "Fer López", 105: "El-Abdellaoui",
+  108: "Pablo Durán",
+  // Elche CF
+  109: "Stadium Card Martínez Valero",
+  112: "Héctor Fort", 117: "Gonzalo Villar", 122: "Morente", 123: "Cepeda",
+  // RCD Espanyol
+  127: "Stadium Card RCDE Stadium",
+  138: "Pickel", 139: "Miguel Román", 143: "Ngonge", 144: "Koleosho",
+  // Getafe CF
+  145: "Stadium Card Coliseum",
+  152: "Zaid Romero", 153: "Boselli", 160: "Luis Vázquez",
+  161: "Satriano", 162: "Álex Sancris",
+  // Girona FC
+  163: "Stadium Card Montilivi",
+  165: "Ter Stegen", 172: "Fran Beltrán", 174: "Echeverri",
+  175: "Lemar", 176: "Portu",
+  // Levante UD
+  181: "Stadium Card Ciutat de València",
+  190: "Raghouber", 192: "Iker Losada", 193: "Arriaga",
+  194: "Tunde", 195: "Paco Cortés", 196: "Kovalipou",
+  // Real Madrid
+  199: "Stadium Card Santiago Bernabéu",
+  206: "Asencio", 207: "Fran García", 208: "Camavinga",
+  211: "Dani Ceballos", 215: "Brahim Díaz",
+  // RCD Mallorca
+  217: "Stadium Card Mallorca Son Moix",
+  225: "Lato", 227: "Mascarell", 233: "Luvumbo", 234: "Abdón",
+  // CA Osasuna
+  235: "Stadium Card El Sadar",
+  241: "Arguibide", 243: "Galán", 247: "Iker Benito", 252: "Raúl Moro",
+  // Real Oviedo
+  253: "Stadium Card Carlos Tartiere",
+  259: "David Costas", 261: "Ejaria", 263: "Sibo",
+  265: "Nico Fonseca", 267: "Thiago Fernández",
+  // Rayo Vallecano
+  271: "Stadium Card Vallecas",
+  277: "Nobel Mendy", 278: "Espino", 283: "Gumbau",
+  285: "Carlos Martín", 288: "Ilias",
+  // Real Sociedad
+  289: "Stadium Card Reale Arena (Anoeta)",
+  293: "Jon Martín", 299: "Yangel Herrera", 305: "Wesley",
+  // Sevilla FC
+  307: "Stadium Card Ramón Sánchez-Pizjuán",
+  314: "Oso", 321: "Alfon", 324: "Maupay",
+  // Valencia CF
+  325: "Stadium Card Mestalla",
+  332: "Nuñez", 334: "Guido Rodríguez", 336: "Ugrinic",
+  340: "Raba", 341: "Sadiq", 342: "Lucas Beltrán",
+  // Villarreal CF
+  343: "Stadium Card Estadio de la Cerámica",
+  346: "Freeman", 347: "Pau Navarro", 350: "Pedraza", 355: "Alfon",
+  356: "Solomon", 358: "Ilias", 360: "Gerard Moreno",
+  // Influencers
+  415: "Ruiz de Galarreta", 416: "Pablo Fornals",
+  417: "Pablo Torre", 418: "Pape Gueye",
+};
+
 // Grupos: rangos y colores
 const GROUPS = [
   { id: "alaves", name: "D. Alavés", start: 1, end: 18, color: "#1E3A8A" },
@@ -695,7 +777,8 @@ export default function App() {
       const current = target[n] || 0;
       target[n] = current + 1;
       const card = CARDS.find(c => c[0] === n);
-      const label = card ? card[1] : "";
+      let label = card ? card[1] : "";
+      if (bis && BIS_NAMES[n]) label = `${label} · ${BIS_NAMES[n]}`;
       const tag = bis ? " BIS" : "";
       if (current === 0) {
         added++;
@@ -849,7 +932,11 @@ export default function App() {
         groupBis.forEach(d => {
           const card = CARDS.find(c => c[0] === d.n);
           const extras = d.count - 1;
-          text += `  ${d.n}bis ${card ? card[1] : ""}  (tengo ${d.count}, ${extras} para cambiar)\n`;
+          const bisName = BIS_NAMES[d.n];
+          const label = bisName
+            ? `${card ? card[1] : ""} · ${bisName}`
+            : (card ? card[1] : "");
+          text += `  ${d.n}bis ${label}  (tengo ${d.count}, ${extras} para cambiar)\n`;
         });
       });
     }
@@ -1411,6 +1498,7 @@ function CardRow({
   const hasDupes = count > 1;
   const bisOwned = bisCount > 0;
   const bisHasDupes = bisCount > 1;
+  const bisName = BIS_NAMES[number] || "";
   const anyOwned = owned || bisOwned;
   const anyDupes = hasDupes || bisHasDupes;
 
@@ -1523,7 +1611,7 @@ function CardRow({
             <div className="w-10 flex-shrink-0" />
             <div className="flex-1 min-w-0 flex items-center gap-2">
               <span
-                className={`text-[10px] font-black tracking-widest px-1.5 py-0.5 rounded ${
+                className={`text-[10px] font-black tracking-widest px-1.5 py-0.5 rounded flex-shrink-0 ${
                   bisHasDupes
                     ? "bg-amber-500 text-slate-900"
                     : bisOwned
@@ -1533,9 +1621,19 @@ function CardRow({
               >
                 BIS
               </span>
+              {bisName && (
+                <span
+                  className={`text-[11px] truncate ${
+                    bisOwned ? "text-slate-200" : "text-slate-500"
+                  }`}
+                  title={bisName}
+                >
+                  {bisName}
+                </span>
+              )}
               {showExtras && bisHasDupes && (
-                <span className="text-[10px] text-amber-400/80 uppercase tracking-wider font-semibold">
-                  {bisCount - 1} para intercambiar · tengo {bisCount}
+                <span className="text-[10px] text-amber-400/80 uppercase tracking-wider font-semibold flex-shrink-0">
+                  · {bisCount - 1} para cambiar
                 </span>
               )}
             </div>
