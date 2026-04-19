@@ -1580,20 +1580,23 @@ function SettingsModal({
               El token y el ID se guardan solo en este navegador.
             </p>
             <p className="text-slate-500">
-              Crea un token fine-grained en <span className="text-slate-300">GitHub → Settings → Developer settings → Personal access tokens</span> con permiso solo <span className="text-slate-300">Gists: Read and write</span>.
+              Usa un token <b>classic</b> (empieza por <code className="text-slate-300">ghp_</code>) en <span className="text-slate-300">GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)</span> con el scope <b className="text-slate-300">gist</b> marcado.
+            </p>
+            <p className="text-amber-400/80">
+              Los tokens fine-grained <b>no funcionan todavía</b> con la API de Gists (devuelven 403).
             </p>
           </div>
 
           <div>
             <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">
-              Token personal (github_pat_…)
+              Token personal classic (ghp_…)
             </label>
             <div className="relative">
               <input
                 type={showToken ? "text" : "password"}
                 value={tokenInput}
                 onChange={(e) => setTokenInput(e.target.value)}
-                placeholder="github_pat_..."
+                placeholder="ghp_..."
                 className="w-full bg-slate-800 border border-slate-700 focus:border-cyan-500 rounded-lg px-3 py-2 pr-10 text-xs font-mono placeholder-slate-600 focus:outline-none"
                 autoComplete="off"
                 spellCheck="false"
