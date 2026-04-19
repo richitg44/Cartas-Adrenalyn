@@ -1,11 +1,13 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createRoot } from "react-dom/client";
 import {
   Plus, Minus, Download, Search, X, Check,
-  AlertCircle, Copy, Trash2, RotateCcw, Edit2, ChevronDown
+  AlertCircle, Copy, Trash2, RotateCcw, Edit2, ChevronDown,
+  Cloud, CloudOff, Loader2, RefreshCw, Settings
 } from "lucide-react";
 
 // ============================================================
-// DATOS DE CARTAS (478 total)
+// DATOS DE CARTAS (522 total incl. Actualización Plus)
 // ============================================================
 const CARDS = [
   // D. Alavés (1-18)
@@ -179,7 +181,116 @@ const CARDS = [
   [471, "Pedri"], [472, "Lamine Yamal"], [473, "Vinícius"], [474, "Mbappé"],
   [475, "Balón de Oro Excellence"], [476, "Card Atómica"],
   [477, "Card Invencible"], [478, "Campeón Card"],
+  // === ACTUALIZACIÓN PLUS ===
+  // Entrenadores (479-498)
+  [479, "Eduardo Coudet"], [480, "Ernesto Valverde"], [481, "Diego Pablo Simeone"],
+  [482, "Hansi Flick"], [483, "Manuel Pellegrini"], [484, "Claudio Giráldez"],
+  [485, "Eder Sarabia"], [486, "Manolo González"], [487, "José Bordalás"],
+  [488, "Míchel"], [489, "Luis Castro"], [490, "Álvaro Arbeloa"],
+  [491, "Jagoba Arrasate"], [492, "Alessio Lisci"], [493, "Guillermo Almada"],
+  [494, "Íñigo Pérez"], [495, "Pellegrino Matarazzo"], [496, "Matías Almeyda"],
+  [497, "Carlos Corberán"], [498, "Marcelino García"],
+  // Nuevos Guantes de Oro (499-500)
+  [499, "Dmitrovic"], [500, "Ter Stegen"],
+  // Nueva Kryptonita (501-503)
+  [501, "Pubill"], [502, "Gerard Martín"], [503, "Asencio"],
+  // Nuevos Diamantes (504-508)
+  [504, "Selton"], [505, "El-Abdellaoui"], [506, "Echeverri"],
+  [507, "Nobel Mendy"], [508, "Oso"],
+  // Nuevos Protas (509-513)
+  [509, "Rodri Mendoza"], [510, "Aitor Ruibal"], [511, "Miguel Román"],
+  [512, "Carlos Romero"], [513, "Maupay"],
+  // Nuevos Super Cracks (514-517)
+  [514, "Giuliano"], [515, "Joao Cancelo"], [516, "Rodrygo"], [517, "Guedes"],
+  // Master Míster (518-519)
+  [518, "Hansi Flick"], [519, "Marcelino García"],
+  // Card Fantástica (520)
+  [520, "Card Fantástica"],
+  // Nuevo Balón de Oro (521-522)
+  [521, "Courtois"], [522, "Pedri firmado"],
 ];
+
+// Nombres de las cartas bis conocidas. Si un número no aparece aquí,
+// la subfila muestra solo "BIS" sin nombre (comportamiento original).
+const BIS_NAMES = {
+  // D. Alavés
+  1: "Stadium Card Mendizorroza",
+  7: "Garcés", 8: "Yusi", 15: "Ángel Pérez", 16: "Calebe", 18: "Abde",
+  // Athletic Club
+  19: "Stadium Card San Mamés",
+  22: "Gorosabel", 29: "Selton", 30: "Rego", 32: "Robert Navarro",
+  // Atlético de Madrid
+  37: "Stadium Card Riyadh Air Metropolitano",
+  40: "Nahuel Molina", 41: "Pubill", 42: "Giménez", 44: "Galán",
+  46: "Obed Vargas", 47: "Johnny Cardoso", 48: "Rodri Mendoza",
+  51: "Raspadori", 54: "Lookman",
+  // FC Barcelona
+  55: "Stadium Card Spotify Nou Camp",
+  58: "Joao Cancelo", 60: "Gerard Martín", 63: "Marc Bernal",
+  64: "Cásado", 70: "Bardghji",
+  // Real Betis
+  73: "Stadium Card La Cartuja",
+  76: "Aitor Rubial", 82: "Deossa", 84: "Fidalgo", 85: "Marc Roca",
+  89: "Pablo García", 90: "Chimy Ávila",
+  // RC Celta
+  91: "Stadium Card Abanca Balaídos",
+  94: "Álvaro Núñez", 96: "Yoel Lago", 101: "Miguel Román",
+  102: "Vecino", 104: "Fer López", 105: "El-Abdellaoui",
+  108: "Pablo Durán",
+  // Elche CF
+  109: "Stadium Card Martínez Valero",
+  112: "Héctor Fort", 117: "Gonzalo Villar", 122: "Morente", 123: "Cepeda",
+  // RCD Espanyol
+  127: "Stadium Card RCDE Stadium",
+  138: "Pickel", 139: "Miguel Román", 143: "Ngonge", 144: "Koleosho",
+  // Getafe CF
+  145: "Stadium Card Coliseum",
+  152: "Zaid Romero", 153: "Boselli", 160: "Luis Vázquez",
+  161: "Satriano", 162: "Álex Sancris",
+  // Girona FC
+  163: "Stadium Card Montilivi",
+  165: "Ter Stegen", 172: "Fran Beltrán", 174: "Echeverri",
+  175: "Lemar", 176: "Portu",
+  // Levante UD
+  181: "Stadium Card Ciutat de València",
+  190: "Raghouber", 192: "Iker Losada", 193: "Arriaga",
+  194: "Tunde", 195: "Paco Cortés", 196: "Kovalipou",
+  // Real Madrid
+  199: "Stadium Card Santiago Bernabéu",
+  206: "Asencio", 207: "Fran García", 208: "Camavinga",
+  211: "Dani Ceballos", 215: "Brahim Díaz",
+  // RCD Mallorca
+  217: "Stadium Card Mallorca Son Moix",
+  225: "Lato", 227: "Mascarell", 233: "Luvumbo", 234: "Abdón",
+  // CA Osasuna
+  235: "Stadium Card El Sadar",
+  241: "Arguibide", 243: "Galán", 247: "Iker Benito", 252: "Raúl Moro",
+  // Real Oviedo
+  253: "Stadium Card Carlos Tartiere",
+  259: "David Costas", 261: "Ejaria", 263: "Sibo",
+  265: "Nico Fonseca", 267: "Thiago Fernández",
+  // Rayo Vallecano
+  271: "Stadium Card Vallecas",
+  277: "Nobel Mendy", 278: "Espino", 283: "Gumbau",
+  285: "Carlos Martín", 288: "Ilias",
+  // Real Sociedad
+  289: "Stadium Card Reale Arena (Anoeta)",
+  293: "Jon Martín", 299: "Yangel Herrera", 305: "Wesley",
+  // Sevilla FC
+  307: "Stadium Card Ramón Sánchez-Pizjuán",
+  314: "Oso", 321: "Alfon", 324: "Maupay",
+  // Valencia CF
+  325: "Stadium Card Mestalla",
+  332: "Nuñez", 334: "Guido Rodríguez", 336: "Ugrinic",
+  340: "Raba", 341: "Sadiq", 342: "Lucas Beltrán",
+  // Villarreal CF
+  343: "Stadium Card Estadio de la Cerámica",
+  346: "Freeman", 347: "Pau Navarro", 350: "Pedraza", 355: "Alfon",
+  356: "Solomon", 358: "Ilias", 360: "Gerard Moreno",
+  // Influencers
+  415: "Ruiz de Galarreta", 416: "Pablo Fornals",
+  417: "Pablo Torre", 418: "Pape Gueye",
+};
 
 // Grupos: rangos y colores
 const GROUPS = [
@@ -211,6 +322,16 @@ const GROUPS = [
   { id: "protas", name: "Protas", start: 424, end: 441, color: "#F97316" },
   { id: "supercracks", name: "Super Cracks", start: 442, end: 467, color: "#EAB308" },
   { id: "especiales", name: "Especiales", start: 468, end: 478, color: "#DC2626" },
+  // === ACTUALIZACIÓN PLUS ===
+  { id: "entrenadores", name: "Entrenadores (Plus)", start: 479, end: 498, color: "#64748B" },
+  { id: "newguantes", name: "Nuevos Guantes de Oro (Plus)", start: 499, end: 500, color: "#F59E0B" },
+  { id: "newkryptonita", name: "Nueva Kryptonita (Plus)", start: 501, end: 503, color: "#10B981" },
+  { id: "newdiamantes", name: "Nuevos Diamantes (Plus)", start: 504, end: 508, color: "#06B6D4" },
+  { id: "newprotas", name: "Nuevos Protas (Plus)", start: 509, end: 513, color: "#F97316" },
+  { id: "newsupercracks", name: "Nuevos Super Cracks (Plus)", start: 514, end: 517, color: "#EAB308" },
+  { id: "master", name: "Master Míster (Plus)", start: 518, end: 519, color: "#8B5CF6" },
+  { id: "fantastica", name: "Card Fantástica (Plus)", start: 520, end: 520, color: "#EC4899" },
+  { id: "newbalonoro", name: "Nuevo Balón de Oro (Plus)", start: 521, end: 522, color: "#DC2626" },
 ];
 
 // Cartas precargadas del checklist analizado
@@ -247,6 +368,61 @@ const INITIAL_OWNED = [
 
 const STORAGE_KEY = "adrenalyn_tracker_v2";
 const LEGACY_STORAGE_KEY = "adrenalyn_tracker_v1";
+const SYNC_KEY = "adrenalyn_sync_v1";
+const GIST_FILENAME = "adrenalyn-tracker.json";
+
+// ============================================================
+// GITHUB GIST API (sincronización opcional entre dispositivos)
+// ============================================================
+async function githubFetch(url, token, options = {}) {
+  const headers = {
+    "Accept": "application/vnd.github+json",
+    "Authorization": `Bearer ${token}`,
+    "X-GitHub-Api-Version": "2022-11-28",
+    ...(options.headers || {}),
+  };
+  if (options.body) headers["Content-Type"] = "application/json";
+  // Cache-buster para GET: evita que el navegador nos sirva una versión antigua
+  // (se nota al borrar cartas: el pull traía la copia cacheada).
+  let finalUrl = url;
+  if (!options.method || options.method.toUpperCase() === "GET") {
+    finalUrl += (url.includes("?") ? "&" : "?") + "_=" + Date.now();
+  }
+  const res = await fetch(finalUrl, { ...options, headers, cache: "no-store" });
+  if (!res.ok) {
+    let detail = "";
+    try { detail = (await res.text()).slice(0, 300); } catch {}
+    throw new Error(`${res.status} ${res.statusText}${detail ? " · " + detail : ""}`);
+  }
+  return res.json();
+}
+
+async function gistCreate(token, payload) {
+  return githubFetch("https://api.github.com/gists", token, {
+    method: "POST",
+    body: JSON.stringify({
+      description: "Adrenalyn XL LaLiga tracker",
+      public: false,
+      files: { [GIST_FILENAME]: { content: JSON.stringify(payload, null, 2) } },
+    }),
+  });
+}
+
+async function gistPull(token, gistId) {
+  const data = await githubFetch(`https://api.github.com/gists/${gistId}`, token);
+  const file = data.files?.[GIST_FILENAME];
+  if (!file) throw new Error(`No hay ${GIST_FILENAME} en el gist`);
+  return JSON.parse(file.content);
+}
+
+async function gistPush(token, gistId, payload) {
+  return githubFetch(`https://api.github.com/gists/${gistId}`, token, {
+    method: "PATCH",
+    body: JSON.stringify({
+      files: { [GIST_FILENAME]: { content: JSON.stringify(payload, null, 2) } },
+    }),
+  });
+}
 
 // Util: obtener grupo de una carta
 const getGroup = (n) => GROUPS.find(g => n >= g.start && n <= g.end);
@@ -254,6 +430,140 @@ const getGroup = (n) => GROUPS.find(g => n >= g.start && n <= g.end);
 // Util: descargar texto como archivo
 const downloadText = (text, filename) => {
   const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
+
+// Convierte "#RRGGBB" en {r,g,b} para jsPDF (que usa canales 0-255).
+const hexToRgb = (hex) => {
+  const m = /^#?([A-Fa-f0-9]{6})$/.exec(hex || "");
+  if (!m) return { r: 15, g: 23, b: 42 };
+  const n = parseInt(m[1], 16);
+  return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
+};
+
+// Genera un PDF A4 multi-página con el listado (faltantes / repetidas)
+// en dos columnas por página para aprovechar mejor el papel.
+// `sections` = [{ title, color, items: [string] }].
+const downloadListAsPdf = async ({ title, subtitle, sections, filename }) => {
+  const { jsPDF } = await import("jspdf");
+  const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
+
+  const PAGE_W = 210;
+  const PAGE_H = 297;
+  const MARGIN = 12;
+  const CONTENT_W = PAGE_W - MARGIN * 2;
+  const COL_GAP = 6;
+  const COL_W = (CONTENT_W - COL_GAP) / 2;
+  const BOTTOM_LIMIT = PAGE_H - 14;
+  const FOOTER_Y = PAGE_H - 7;
+
+  const SECTION_FONT = 12;
+  const ITEM_FONT = 9.5;
+  const LINE_H = 4.2;
+
+  const drawPageChrome = (pageNum) => {
+    doc.setFillColor(249, 115, 22);
+    doc.rect(0, 0, PAGE_W, 3, "F");
+    doc.setTextColor(148, 163, 184);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8.5);
+    doc.text("Adrenalyn XL LaLiga 2025-26", MARGIN, FOOTER_Y);
+    doc.text(`Página ${pageNum}`, PAGE_W - MARGIN, FOOTER_Y, { align: "right" });
+  };
+
+  let pageNum = 1;
+  drawPageChrome(pageNum);
+
+  // Cabecera primera página (a dos columnas de ancho)
+  let y = MARGIN + 6;
+  doc.setTextColor(15, 23, 42);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(20);
+  doc.text(title, MARGIN, y);
+  y += 7;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(10);
+  doc.setTextColor(100, 116, 139);
+  doc.text(subtitle, MARGIN, y);
+  y += 8;
+
+  let col = 0;
+  let columnStartY = y;
+
+  const colX = () => MARGIN + col * (COL_W + COL_GAP);
+
+  const newPage = () => {
+    doc.addPage();
+    pageNum++;
+    drawPageChrome(pageNum);
+    col = 0;
+    columnStartY = MARGIN + 5;
+    y = columnStartY;
+  };
+
+  const nextColumn = () => {
+    if (col === 0) {
+      col = 1;
+      y = columnStartY;
+    } else {
+      newPage();
+    }
+  };
+
+  const ensure = (needed) => {
+    if (y + needed > BOTTOM_LIMIT) nextColumn();
+  };
+
+  sections.forEach(section => {
+    // Pre-calcular alto del primer ítem con la fuente correcta para
+    // evitar títulos huérfanos al final de columna.
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(ITEM_FONT);
+    let firstItemH = 0;
+    if (section.items.length > 0) {
+      const lines = doc.splitTextToSize(section.items[0], COL_W - 6);
+      firstItemH = lines.length * LINE_H;
+    }
+    ensure(7 + firstItemH);
+
+    // Barrita de color
+    const c = hexToRgb(section.color);
+    doc.setFillColor(c.r, c.g, c.b);
+    doc.rect(colX(), y - 3.2, 1.8, 4.8, "F");
+
+    // Título de sección (con wrap si el nombre es largo)
+    doc.setTextColor(15, 23, 42);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(SECTION_FONT);
+    const titleLines = doc.splitTextToSize(section.title, COL_W - 4);
+    doc.text(titleLines, colX() + 4, y);
+    y += titleLines.length * 4.8;
+
+    // Ítems
+    section.items.forEach(item => {
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(ITEM_FONT);
+      const lines = doc.splitTextToSize(item, COL_W - 6);
+      ensure(lines.length * LINE_H);
+      // Reafirmar estilo tras posible salto de página/columna.
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(ITEM_FONT);
+      doc.setTextColor(30, 41, 59);
+      doc.text(lines, colX() + 5, y);
+      y += lines.length * LINE_H;
+    });
+
+    y += 3;
+  });
+
+  const blob = doc.output("blob");
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -276,49 +586,157 @@ export default function App() {
   const [confirmReset, setConfirmReset] = useState(false);
   const inputRef = useRef(null);
 
-  // Carga inicial desde storage (con migración desde v1)
+  // Sync con GitHub Gist
+  const [syncToken, setSyncToken] = useState("");
+  const [syncGistId, setSyncGistId] = useState("");
+  // idle | syncing | synced | error | disconnected
+  const [syncStatus, setSyncStatus] = useState("disconnected");
+  const [syncError, setSyncError] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const autoSaveTimerRef = useRef(null);
+  const skipNextAutoSyncRef = useRef(false);
+  const didInitialPullRef = useRef(false);
+
+  // Carga inicial desde localStorage (con migración desde v1)
   useEffect(() => {
-    (async () => {
-      try {
-        const result = await window.storage.get(STORAGE_KEY);
-        if (result && result.value) {
-          const data = JSON.parse(result.value);
-          setCounts(data.counts || {});
-          setBisCounts(data.bisCounts || {});
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        setCounts(data.counts || {});
+        setBisCounts(data.bisCounts || {});
+      } else {
+        // Intentar migrar desde v1
+        const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+        let initCounts;
+        if (legacy) {
+          initCounts = JSON.parse(legacy);
         } else {
-          // Intentar migrar desde v1
-          let legacy = null;
-          try {
-            legacy = await window.storage.get(LEGACY_STORAGE_KEY);
-          } catch {}
-          let initCounts;
-          if (legacy && legacy.value) {
-            initCounts = JSON.parse(legacy.value);
-          } else {
-            initCounts = {};
-            INITIAL_OWNED.forEach(n => { initCounts[n] = 1; });
-          }
-          setCounts(initCounts);
-          setBisCounts({});
-          await window.storage.set(
-            STORAGE_KEY,
-            JSON.stringify({ counts: initCounts, bisCounts: {} })
-          );
+          initCounts = {};
+          INITIAL_OWNED.forEach(n => { initCounts[n] = 1; });
         }
-      } catch (e) {
-        const init = {};
-        INITIAL_OWNED.forEach(n => { init[n] = 1; });
-        setCounts(init);
+        setCounts(initCounts);
         setBisCounts({});
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ counts: initCounts, bisCounts: {} })
+        );
       }
-      setLoaded(true);
-    })();
+    } catch (e) {
+      const init = {};
+      INITIAL_OWNED.forEach(n => { init[n] = 1; });
+      setCounts(init);
+      setBisCounts({});
+    }
+    setLoaded(true);
+
+    // Carga config de sync (token + gistId) si existe
+    try {
+      const rawSync = localStorage.getItem(SYNC_KEY);
+      if (rawSync) {
+        const { token, gistId } = JSON.parse(rawSync);
+        if (token) setSyncToken(token);
+        if (gistId) setSyncGistId(gistId);
+        if (token && gistId) setSyncStatus("idle");
+      }
+    } catch {}
   }, []);
 
+  // Pull inicial al arrancar si hay sync configurado
+  useEffect(() => {
+    if (!loaded) return;
+    if (didInitialPullRef.current) return;
+    if (!syncToken || !syncGistId) return;
+    didInitialPullRef.current = true;
+    (async () => {
+      setSyncStatus("syncing");
+      setSyncError("");
+      try {
+        const data = await gistPull(syncToken, syncGistId);
+        skipNextAutoSyncRef.current = true;
+        const nextCounts = data.counts || {};
+        const nextBis = data.bisCounts || {};
+        setCounts(nextCounts);
+        setBisCounts(nextBis);
+        try {
+          localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({ counts: nextCounts, bisCounts: nextBis })
+          );
+        } catch {}
+        setSyncStatus("synced");
+      } catch (e) {
+        setSyncStatus("error");
+        setSyncError(e.message);
+      }
+    })();
+  }, [loaded, syncToken, syncGistId]);
+
+  // Pull cada vez que la pestaña vuelve a estar visible (cambio de app, vuelta a la web…).
+  // Así el otro dispositivo ve en cuanto vuelves a él los cambios hechos desde el otro.
+  useEffect(() => {
+    if (!loaded || !syncToken || !syncGistId) return;
+    const onVisible = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        setSyncStatus("syncing");
+        const data = await gistPull(syncToken, syncGistId);
+        const nextCounts = data.counts || {};
+        const nextBis = data.bisCounts || {};
+        skipNextAutoSyncRef.current = true;
+        setCounts(nextCounts);
+        setBisCounts(nextBis);
+        try {
+          localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({ counts: nextCounts, bisCounts: nextBis })
+          );
+        } catch {}
+        setSyncStatus("synced");
+        setSyncError("");
+      } catch (e) {
+        setSyncStatus("error");
+        setSyncError(e.message);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [loaded, syncToken, syncGistId]);
+
+  // Auto-save al gist con debounce de 1,5s cuando cambian los contadores
+  useEffect(() => {
+    if (!loaded) return;
+    if (!syncToken || !syncGistId) return;
+    if (skipNextAutoSyncRef.current) {
+      skipNextAutoSyncRef.current = false;
+      return;
+    }
+    clearTimeout(autoSaveTimerRef.current);
+    if (syncStatus !== "syncing") setSyncStatus("pending");
+    autoSaveTimerRef.current = setTimeout(async () => {
+      setSyncStatus("syncing");
+      setSyncError("");
+      try {
+        await gistPush(syncToken, syncGistId, {
+          counts, bisCounts, updatedAt: Date.now(),
+        });
+        setSyncStatus("synced");
+      } catch (e) {
+        setSyncStatus("error");
+        setSyncError(e.message);
+      }
+    }, 1500);
+    return () => clearTimeout(autoSaveTimerRef.current);
+  }, [counts, bisCounts, loaded, syncToken, syncGistId]);
+
   // Guardar: siempre persiste counts + bisCounts juntos
-  const saveAll = async (nextCounts, nextBis) => {
+  const saveAll = (nextCounts, nextBis) => {
     try {
-      await window.storage.set(
+      localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({ counts: nextCounts, bisCounts: nextBis })
       );
@@ -327,20 +745,144 @@ export default function App() {
     }
   };
 
-  const persist = async (newCounts) => {
+  const persist = (newCounts) => {
     setCounts(newCounts);
-    await saveAll(newCounts, bisCounts);
+    saveAll(newCounts, bisCounts);
   };
 
-  const persistBis = async (newBis) => {
+  const persistBis = (newBis) => {
     setBisCounts(newBis);
-    await saveAll(counts, newBis);
+    saveAll(counts, newBis);
   };
 
   // Toast
   const showToast = (msg, type = "success") => {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  // Sync: guarda token + gistId en localStorage
+  const persistSyncConfig = (token, gistId) => {
+    try {
+      if (token && gistId) {
+        localStorage.setItem(SYNC_KEY, JSON.stringify({ token, gistId }));
+      } else {
+        localStorage.removeItem(SYNC_KEY);
+      }
+    } catch {}
+  };
+
+  // Crea un gist nuevo con el estado actual y guarda el ID
+  const handleCreateGist = async (token) => {
+    if (!token) {
+      showToast("Introduce primero un token", "error");
+      return;
+    }
+    setSyncStatus("syncing");
+    setSyncError("");
+    try {
+      const payload = { counts, bisCounts, updatedAt: Date.now() };
+      const gist = await gistCreate(token, payload);
+      skipNextAutoSyncRef.current = true;
+      setSyncToken(token);
+      setSyncGistId(gist.id);
+      persistSyncConfig(token, gist.id);
+      setSyncStatus("synced");
+      showToast(`Gist creado · ID: ${gist.id.slice(0, 8)}…`);
+    } catch (e) {
+      setSyncStatus("error");
+      setSyncError(e.message);
+      showToast("Error al crear gist", "error");
+    }
+  };
+
+  // Conecta a un gist existente: descarga y reemplaza el estado local
+  const handleConnectGist = async (token, gistId) => {
+    if (!token || !gistId) {
+      showToast("Token y Gist ID son obligatorios", "error");
+      return;
+    }
+    setSyncStatus("syncing");
+    setSyncError("");
+    try {
+      const data = await gistPull(token, gistId);
+      const nextCounts = data.counts || {};
+      const nextBis = data.bisCounts || {};
+      skipNextAutoSyncRef.current = true;
+      setCounts(nextCounts);
+      setBisCounts(nextBis);
+      try {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ counts: nextCounts, bisCounts: nextBis })
+        );
+      } catch {}
+      setSyncToken(token);
+      setSyncGistId(gistId);
+      persistSyncConfig(token, gistId);
+      setSyncStatus("synced");
+      showToast("Conectado y colección descargada");
+    } catch (e) {
+      setSyncStatus("error");
+      setSyncError(e.message);
+      showToast("No se pudo conectar al gist", "error");
+    }
+  };
+
+  // Sincroniza ahora (push manual)
+  const handleSyncNow = async () => {
+    if (!syncToken || !syncGistId) return;
+    clearTimeout(autoSaveTimerRef.current);
+    setSyncStatus("syncing");
+    setSyncError("");
+    try {
+      await gistPush(syncToken, syncGistId, {
+        counts, bisCounts, updatedAt: Date.now(),
+      });
+      setSyncStatus("synced");
+      showToast("Sincronizado con el gist");
+    } catch (e) {
+      setSyncStatus("error");
+      setSyncError(e.message);
+      showToast("Error al sincronizar", "error");
+    }
+  };
+
+  // Pull manual (trae lo último del gist sobreescribiendo lo local)
+  const handlePullNow = async () => {
+    if (!syncToken || !syncGistId) return;
+    setSyncStatus("syncing");
+    setSyncError("");
+    try {
+      const data = await gistPull(syncToken, syncGistId);
+      const nextCounts = data.counts || {};
+      const nextBis = data.bisCounts || {};
+      skipNextAutoSyncRef.current = true;
+      setCounts(nextCounts);
+      setBisCounts(nextBis);
+      try {
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ counts: nextCounts, bisCounts: nextBis })
+        );
+      } catch {}
+      setSyncStatus("synced");
+      showToast("Descargado desde el gist");
+    } catch (e) {
+      setSyncStatus("error");
+      setSyncError(e.message);
+      showToast("Error al descargar", "error");
+    }
+  };
+
+  const handleDisconnect = () => {
+    clearTimeout(autoSaveTimerRef.current);
+    setSyncToken("");
+    setSyncGistId("");
+    persistSyncConfig("", "");
+    setSyncStatus("disconnected");
+    setSyncError("");
+    showToast("Desconectado de GitHub Gist");
   };
 
   // Quick add: procesa input separado por espacios/comas.
@@ -353,11 +895,11 @@ export default function App() {
       const m = t.match(/^(\d+)(b|bis)?$/i);
       if (!m) return null;
       const n = parseInt(m[1], 10);
-      if (isNaN(n) || n < 1 || n > 478) return null;
+      if (isNaN(n) || n < 1 || n > 522) return null;
       return { n, bis: !!m[2] };
     }).filter(Boolean);
     if (parsed.length === 0) {
-      showToast("Número no válido (1-478, opcional sufijo 'b' o 'bis')", "error");
+      showToast("Número no válido (1-522, opcional sufijo 'b' o 'bis')", "error");
       return;
     }
     const newCounts = { ...counts };
@@ -369,7 +911,8 @@ export default function App() {
       const current = target[n] || 0;
       target[n] = current + 1;
       const card = CARDS.find(c => c[0] === n);
-      const label = card ? card[1] : "";
+      let label = card ? card[1] : "";
+      if (bis && BIS_NAMES[n]) label = `${label} · ${BIS_NAMES[n]}`;
       const tag = bis ? " BIS" : "";
       if (current === 0) {
         added++;
@@ -449,7 +992,7 @@ export default function App() {
 
   // Estadísticas
   const stats = useMemo(() => {
-    const total = 478;
+    const total = 522;
     const owned = Object.values(counts).filter(c => c > 0).length;
     const duplicates = Object.entries(counts)
       .filter(([, c]) => c > 1)
@@ -472,7 +1015,9 @@ export default function App() {
   const downloadMissing = () => {
     let text = "CARTAS QUE ME FALTAN — Adrenalyn XL LaLiga 2025-26\n";
     text += "=".repeat(55) + "\n";
-    text += `Total faltantes: ${stats.missing} de ${stats.total}\n\n`;
+    text += `Total faltantes: ${stats.missing} normales`;
+    if (missingBisCards.length > 0) text += ` · ${missingBisCards.length} BIS`;
+    text += `\n`;
     GROUPS.forEach(g => {
       const missing = [];
       for (let n = g.start; n <= g.end; n++) {
@@ -481,15 +1026,61 @@ export default function App() {
           missing.push(`  ${n} ${card ? card[1] : ""}`);
         }
       }
-      if (missing.length > 0) {
-        text += `\n${g.name} (${missing.length})\n`;
-        text += "-".repeat(g.name.length + 10) + "\n";
-        text += missing.join("\n") + "\n";
-      }
+      const bisMissing = missingBisCards
+        .filter(b => b.number >= g.start && b.number <= g.end)
+        .map(b => {
+          const card = CARDS.find(c => c[0] === b.number);
+          const baseName = card ? card[1] : "";
+          return `  ${b.number}bis ${baseName} · ${b.bisName}`;
+        });
+      if (missing.length === 0 && bisMissing.length === 0) return;
+      text += `\n${g.name} (${missing.length}${bisMissing.length ? ` + ${bisMissing.length} bis` : ""})\n`;
+      text += "-".repeat(g.name.length + 10) + "\n";
+      if (missing.length > 0) text += missing.join("\n") + "\n";
+      if (bisMissing.length > 0) text += bisMissing.join("\n") + "\n";
     });
     const date = new Date().toISOString().slice(0, 10);
     downloadText(text, `faltantes_adrenalyn_${date}.txt`);
     showToast("Lista de faltantes descargada");
+  };
+
+  // Descargar faltantes como PDF A4 multi-página (óptimo para Wallapop/imprimir)
+  const downloadMissingPdf = async () => {
+    const sections = [];
+    GROUPS.forEach(g => {
+      const items = [];
+      for (let n = g.start; n <= g.end; n++) {
+        if (!counts[n] || counts[n] === 0) {
+          const card = CARDS.find(c => c[0] === n);
+          items.push(`#${n}  ${card ? card[1] : ""}`);
+        }
+      }
+      missingBisCards
+        .filter(b => b.number >= g.start && b.number <= g.end)
+        .forEach(b => {
+          const card = CARDS.find(c => c[0] === b.number);
+          items.push(`#${b.number} BIS  ${card ? card[1] : ""} · ${b.bisName}`);
+        });
+      if (items.length > 0) sections.push({ title: g.name, color: g.color, items });
+    });
+    if (sections.length === 0) {
+      showToast("No te falta nada, no hay nada que exportar", "warn");
+      return;
+    }
+    const bisTxt = missingBisCards.length > 0 ? ` · ${missingBisCards.length} BIS` : "";
+    const date = new Date().toISOString().slice(0, 10);
+    try {
+      await downloadListAsPdf({
+        title: "Cartas que me faltan",
+        subtitle: `${stats.missing} normales${bisTxt} · generado el ${date}`,
+        sections,
+        filename: `faltantes_adrenalyn_${date}.pdf`,
+      });
+      showToast("PDF de faltantes descargado");
+    } catch (e) {
+      console.error(e);
+      showToast("Error generando el PDF", "error");
+    }
   };
 
   // Descargar repetidas
@@ -523,7 +1114,11 @@ export default function App() {
         groupBis.forEach(d => {
           const card = CARDS.find(c => c[0] === d.n);
           const extras = d.count - 1;
-          text += `  ${d.n}bis ${card ? card[1] : ""}  (tengo ${d.count}, ${extras} para cambiar)\n`;
+          const bisName = BIS_NAMES[d.n];
+          const label = bisName
+            ? `${card ? card[1] : ""} · ${bisName}`
+            : (card ? card[1] : "");
+          text += `  ${d.n}bis ${label}  (tengo ${d.count}, ${extras} para cambiar)\n`;
         });
       });
     }
@@ -532,15 +1127,57 @@ export default function App() {
     showToast("Lista de repetidas descargada");
   };
 
+  // Descargar repetidas como PDF A4 multi-página (óptimo para Wallapop/imprimir)
+  const downloadDupesPdf = async () => {
+    const sections = [];
+    GROUPS.forEach(g => {
+      const items = [];
+      for (let n = g.start; n <= g.end; n++) {
+        const c = counts[n] || 0;
+        if (c > 1) {
+          const card = CARDS.find(cc => cc[0] === n);
+          items.push(`#${n}  ${card ? card[1] : ""}  (x${c - 1})`);
+        }
+      }
+      for (let n = g.start; n <= g.end; n++) {
+        const bc = bisCounts[n] || 0;
+        if (bc > 1) {
+          const card = CARDS.find(cc => cc[0] === n);
+          const suffix = BIS_NAMES[n] ? ` · ${BIS_NAMES[n]}` : "";
+          items.push(`#${n} BIS  ${card ? card[1] : ""}${suffix}  (x${bc - 1})`);
+        }
+      }
+      if (items.length > 0) sections.push({ title: g.name, color: g.color, items });
+    });
+    if (sections.length === 0) {
+      showToast("No tienes repetidas que exportar", "warn");
+      return;
+    }
+    const date = new Date().toISOString().slice(0, 10);
+    try {
+      await downloadListAsPdf({
+        title: "Mis cartas repetidas",
+        subtitle: `${stats.duplicates} repetidas para intercambio · generado el ${date}`,
+        sections,
+        filename: `repetidas_adrenalyn_${date}.pdf`,
+      });
+      showToast("PDF de repetidas descargado");
+    } catch (e) {
+      console.error(e);
+      showToast("Error generando el PDF", "error");
+    }
+  };
+
   // Copiar al portapapeles
   const copyMissing = async () => {
-    const nums = [];
-    for (let n = 1; n <= 478; n++) {
-      if (!counts[n] || counts[n] === 0) nums.push(n);
+    const tokens = [];
+    for (let n = 1; n <= 522; n++) {
+      if (!counts[n] || counts[n] === 0) tokens.push(String(n));
     }
+    missingBisCards.forEach(b => tokens.push(`${b.number}b`));
     try {
-      await navigator.clipboard.writeText(nums.join(", "));
-      showToast(`${nums.length} números copiados`);
+      await navigator.clipboard.writeText(tokens.join(", "));
+      showToast(`${tokens.length} números copiados`);
     } catch {
       showToast("No se pudo copiar", "error");
     }
@@ -568,10 +1205,10 @@ export default function App() {
     }
   };
 
-  const resetAll = async () => {
+  const resetAll = () => {
     setCounts({});
     setBisCounts({});
-    await saveAll({}, {});
+    saveAll({}, {});
     setConfirmReset(false);
     showToast("Colección reiniciada");
   };
@@ -595,6 +1232,13 @@ export default function App() {
   const missingCards = useMemo(() => {
     return CARDS.filter(c => !counts[c[0]] || counts[c[0]] === 0);
   }, [counts]);
+
+  const missingBisCards = useMemo(() => {
+    return Object.entries(BIS_NAMES)
+      .map(([n, bisName]) => ({ number: parseInt(n, 10), bisName }))
+      .filter(({ number }) => !(bisCounts[number] > 0))
+      .sort((a, b) => a.number - b.number);
+  }, [bisCounts]);
 
   const dupeCards = useMemo(() => {
     return CARDS.filter(c =>
@@ -628,18 +1272,24 @@ export default function App() {
                 LaLiga 2025-26 · Mi colección
               </p>
             </div>
-            <div className="text-right">
-              <div className="text-2xl font-black text-orange-500 leading-none">
-                {stats.owned}<span className="text-slate-600 text-lg">/{stats.total}</span>
-              </div>
-              <div className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">
-                {Math.round((stats.owned / stats.total) * 100)}% completo
-              </div>
-              {stats.bisOwned > 0 && (
-                <div className="text-[10px] text-cyan-400 uppercase tracking-wider mt-0.5 font-semibold">
-                  +{stats.bisOwned} bis
+            <div className="flex items-start gap-2">
+              <SyncBadge
+                status={syncStatus}
+                onClick={() => setSettingsOpen(true)}
+              />
+              <div className="text-right">
+                <div className="text-2xl font-black text-orange-500 leading-none">
+                  {stats.owned}<span className="text-slate-600 text-lg">/{stats.total}</span>
                 </div>
-              )}
+                <div className="text-[10px] text-slate-400 uppercase tracking-wider mt-1">
+                  {Math.round((stats.owned / stats.total) * 100)}% completo
+                </div>
+                {stats.bisOwned > 0 && (
+                  <div className="text-[10px] text-cyan-400 uppercase tracking-wider mt-0.5 font-semibold">
+                    +{stats.bisOwned} bis
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -691,9 +1341,9 @@ export default function App() {
       <nav className="sticky top-[152px] z-10 bg-slate-950 border-b border-slate-800">
         <div className="flex">
           {[
-            { id: "coleccion", label: "Colección", count: stats.owned, color: "text-emerald-400" },
-            { id: "faltantes", label: "Faltantes", count: stats.missing, color: "text-red-400" },
-            { id: "repetidas", label: "Repetidas", count: stats.duplicates, color: "text-amber-400" },
+            { id: "coleccion", label: "Colección", count: stats.owned, color: "text-emerald-400", sub: stats.bisOwned > 0 ? `+${stats.bisOwned} bis` : "" },
+            { id: "faltantes", label: "Faltantes", count: stats.missing, color: "text-red-400", sub: missingBisCards.length > 0 ? `+${missingBisCards.length} bis` : "" },
+            { id: "repetidas", label: "Repetidas", count: stats.duplicates, color: "text-amber-400", sub: "" },
           ].map(tab => (
             <button
               key={tab.id}
@@ -710,6 +1360,11 @@ export default function App() {
               <div className={`text-lg font-black ${view === tab.id ? tab.color : "text-slate-600"}`}>
                 {tab.count}
               </div>
+              {tab.sub && (
+                <div className="text-[9px] text-cyan-400/80 font-bold tracking-wider mt-0.5">
+                  {tab.sub}
+                </div>
+              )}
             </button>
           ))}
         </div>
@@ -739,8 +1394,11 @@ export default function App() {
         {view === "faltantes" && (
           <FaltantesView
             missingCards={missingCards}
+            missingBisCards={missingBisCards}
             onInc={incCard}
+            onBisInc={incBis}
             onDownload={downloadMissing}
+            onDownloadPdf={downloadMissingPdf}
             onCopy={copyMissing}
           />
         )}
@@ -757,6 +1415,7 @@ export default function App() {
             onBisDec={decBis}
             onBisSetCount={setBisCardCount}
             onDownload={downloadDupes}
+            onDownloadPdf={downloadDupesPdf}
             onCopy={copyDupes}
           />
         )}
@@ -776,6 +1435,23 @@ export default function App() {
           {toast.type === "error" ? <AlertCircle size={18} className="flex-shrink-0 mt-0.5" /> : <Check size={18} className="flex-shrink-0 mt-0.5" />}
           <span className="whitespace-pre-line">{toast.msg}</span>
         </div>
+      )}
+
+      {/* Settings / sync modal */}
+      {settingsOpen && (
+        <SettingsModal
+          initialToken={syncToken}
+          initialGistId={syncGistId}
+          connected={!!(syncToken && syncGistId)}
+          status={syncStatus}
+          error={syncError}
+          onClose={() => setSettingsOpen(false)}
+          onCreateGist={handleCreateGist}
+          onConnect={handleConnectGist}
+          onSyncNow={handleSyncNow}
+          onPullNow={handlePullNow}
+          onDisconnect={handleDisconnect}
+        />
       )}
 
       {/* Reset confirm */}
@@ -917,49 +1593,60 @@ function ColeccionView({ cards, counts, bisCounts, onInc, onDec, onSetCount, onB
 }
 
 // ========== VISTA FALTANTES ==========
-function FaltantesView({ missingCards, onInc, onDownload, onCopy }) {
+function FaltantesView({ missingCards, missingBisCards = [], onInc, onBisInc, onDownload, onDownloadPdf, onCopy }) {
+  const nothingMissing = missingCards.length === 0 && missingBisCards.length === 0;
   return (
     <div>
-      <div className="grid grid-cols-2 gap-2 mb-4">
+      <div className="grid grid-cols-3 gap-2 mb-4">
         <button
           onClick={onDownload}
-          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-3 text-sm font-semibold flex items-center justify-center gap-2"
+          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
         >
-          <Download size={16} className="text-orange-400" />
-          Descargar .txt
+          <Download size={14} className="text-orange-400" />
+          .txt
+        </button>
+        <button
+          onClick={onDownloadPdf}
+          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
+        >
+          <Download size={14} className="text-emerald-400" />
+          PDF
         </button>
         <button
           onClick={onCopy}
-          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-3 text-sm font-semibold flex items-center justify-center gap-2"
+          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
         >
-          <Copy size={16} className="text-orange-400" />
-          Copiar números
+          <Copy size={14} className="text-orange-400" />
+          Copiar
         </button>
       </div>
 
-      {missingCards.length === 0 ? (
+      {nothingMissing ? (
         <div className="text-center py-16">
           <div className="text-6xl mb-3">🏆</div>
           <p className="text-emerald-400 font-bold text-lg">¡Colección completa!</p>
-          <p className="text-slate-500 text-sm mt-1">Ya tienes las 478 cartas</p>
+          <p className="text-slate-500 text-sm mt-1">Ya tienes las 522 cartas (y todas las BIS)</p>
         </div>
       ) : (
         <div className="space-y-4">
           {GROUPS.map(g => {
             const missing = missingCards.filter(c => c[0] >= g.start && c[0] <= g.end);
-            if (missing.length === 0) return null;
+            const bisMissing = missingBisCards.filter(b => b.number >= g.start && b.number <= g.end);
+            if (missing.length === 0 && bisMissing.length === 0) return null;
             return (
               <div key={g.id}>
-                <div className="flex items-center gap-2 mb-2">
+                <div className="flex items-center gap-2 mb-2 flex-wrap">
                   <div className="w-1 h-5 rounded-full" style={{ backgroundColor: g.color }} />
                   <h3 className="font-bold text-sm text-slate-200">{g.name}</h3>
-                  <span className="text-xs text-slate-500">({missing.length} faltantes)</span>
+                  <span className="text-xs text-slate-500">
+                    ({missing.length} faltantes{bisMissing.length > 0 ? ` · +${bisMissing.length} bis` : ""})
+                  </span>
                 </div>
                 <div className="space-y-1">
                   {missing.map(c => (
                     <div key={c[0]} className="flex items-center gap-2 bg-slate-900/50 border border-slate-800 rounded-lg px-3 py-2">
                       <div className="text-xs font-mono text-slate-500 w-10">#{c[0]}</div>
-                      <div className="flex-1 text-sm text-slate-300">{c[1]}</div>
+                      <div className="flex-1 text-sm text-slate-300 truncate">{c[1]}</div>
                       <button
                         onClick={() => onInc(c[0])}
                         className="bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-md p-1.5"
@@ -969,6 +1656,29 @@ function FaltantesView({ missingCards, onInc, onDownload, onCopy }) {
                       </button>
                     </div>
                   ))}
+                  {bisMissing.map(b => {
+                    const card = CARDS.find(c => c[0] === b.number);
+                    const baseName = card ? card[1] : "";
+                    return (
+                      <div key={`bis-${b.number}`} className="flex items-center gap-2 bg-slate-900/50 border border-slate-800 rounded-lg px-3 py-2">
+                        <div className="text-xs font-mono text-slate-500 w-10">#{b.number}</div>
+                        <span className="text-[10px] font-black tracking-widest px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 flex-shrink-0">
+                          BIS
+                        </span>
+                        <div className="flex-1 min-w-0 text-sm text-slate-400 truncate" title={`${baseName} · ${b.bisName}`}>
+                          <span className="text-slate-500">{baseName} · </span>
+                          <span className="text-slate-200">{b.bisName}</span>
+                        </div>
+                        <button
+                          onClick={() => onBisInc && onBisInc(b.number)}
+                          className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-300 border border-cyan-500/30 rounded-md p-1.5"
+                          title="Ya la tengo"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -980,23 +1690,30 @@ function FaltantesView({ missingCards, onInc, onDownload, onCopy }) {
 }
 
 // ========== VISTA REPETIDAS ==========
-function RepetidasView({ dupeCards, counts, bisCounts, onInc, onDec, onSetCount, onBisInc, onBisDec, onBisSetCount, onDownload, onCopy }) {
+function RepetidasView({ dupeCards, counts, bisCounts, onInc, onDec, onSetCount, onBisInc, onBisDec, onBisSetCount, onDownload, onDownloadPdf, onCopy }) {
   return (
     <div>
-      <div className="grid grid-cols-2 gap-2 mb-4">
+      <div className="grid grid-cols-3 gap-2 mb-4">
         <button
           onClick={onDownload}
-          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-3 text-sm font-semibold flex items-center justify-center gap-2"
+          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
         >
-          <Download size={16} className="text-amber-400" />
-          Descargar .txt
+          <Download size={14} className="text-amber-400" />
+          .txt
+        </button>
+        <button
+          onClick={onDownloadPdf}
+          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
+        >
+          <Download size={14} className="text-emerald-400" />
+          PDF
         </button>
         <button
           onClick={onCopy}
-          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-3 text-sm font-semibold flex items-center justify-center gap-2"
+          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
         >
-          <Copy size={16} className="text-amber-400" />
-          Copiar resumen
+          <Copy size={14} className="text-amber-400" />
+          Copiar
         </button>
       </div>
 
@@ -1062,6 +1779,7 @@ function CardRow({
   const hasDupes = count > 1;
   const bisOwned = bisCount > 0;
   const bisHasDupes = bisCount > 1;
+  const bisName = BIS_NAMES[number] || "";
   const anyOwned = owned || bisOwned;
   const anyDupes = hasDupes || bisHasDupes;
 
@@ -1174,7 +1892,7 @@ function CardRow({
             <div className="w-10 flex-shrink-0" />
             <div className="flex-1 min-w-0 flex items-center gap-2">
               <span
-                className={`text-[10px] font-black tracking-widest px-1.5 py-0.5 rounded ${
+                className={`text-[10px] font-black tracking-widest px-1.5 py-0.5 rounded flex-shrink-0 ${
                   bisHasDupes
                     ? "bg-amber-500 text-slate-900"
                     : bisOwned
@@ -1184,9 +1902,19 @@ function CardRow({
               >
                 BIS
               </span>
+              {bisName && (
+                <span
+                  className={`text-[11px] truncate ${
+                    bisOwned ? "text-slate-200" : "text-slate-500"
+                  }`}
+                  title={bisName}
+                >
+                  {bisName}
+                </span>
+              )}
               {showExtras && bisHasDupes && (
-                <span className="text-[10px] text-amber-400/80 uppercase tracking-wider font-semibold">
-                  {bisCount - 1} para intercambiar · tengo {bisCount}
+                <span className="text-[10px] text-amber-400/80 uppercase tracking-wider font-semibold flex-shrink-0">
+                  · {bisCount - 1} para cambiar
                 </span>
               )}
             </div>
@@ -1248,4 +1976,183 @@ function CardRow({
       </div>
     </div>
   );
+}
+
+// ========== INDICADOR DE SYNC EN CABECERA ==========
+function SyncBadge({ status, onClick }) {
+  const map = {
+    disconnected: { icon: <CloudOff size={14} />, label: "Sin sync", className: "bg-slate-800 text-slate-400 border-slate-700" },
+    idle:         { icon: <Cloud size={14} />,    label: "Listo",    className: "bg-slate-800 text-slate-300 border-slate-700" },
+    pending:      { icon: <Cloud size={14} />,    label: "Pendiente", className: "bg-amber-500/10 text-amber-300 border-amber-500/30" },
+    syncing:      { icon: <Loader2 size={14} className="animate-spin" />, label: "Sync…", className: "bg-cyan-500/10 text-cyan-300 border-cyan-500/30" },
+    synced:       { icon: <Cloud size={14} />,    label: "Sync OK", className: "bg-emerald-500/10 text-emerald-300 border-emerald-500/30" },
+    error:        { icon: <AlertCircle size={14} />, label: "Error", className: "bg-red-500/10 text-red-300 border-red-500/30" },
+  };
+  const s = map[status] || map.disconnected;
+  return (
+    <button
+      onClick={onClick}
+      className={`flex items-center gap-1.5 px-2 py-1 rounded-md border text-[10px] font-bold uppercase tracking-wider ${s.className}`}
+      title="Ajustes de sincronización"
+    >
+      {s.icon}
+      <span>{s.label}</span>
+    </button>
+  );
+}
+
+// ========== MODAL DE AJUSTES / SYNC ==========
+function SettingsModal({
+  initialToken, initialGistId, connected, status, error,
+  onClose, onCreateGist, onConnect, onSyncNow, onPullNow, onDisconnect,
+}) {
+  const [tokenInput, setTokenInput] = useState(initialToken || "");
+  const [gistIdInput, setGistIdInput] = useState(initialGistId || "");
+  const [showToken, setShowToken] = useState(false);
+
+  const canCreate = tokenInput.trim().length > 20 && !connected;
+  const canConnect = tokenInput.trim().length > 20 && gistIdInput.trim().length > 0;
+  const busy = status === "syncing";
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 overflow-y-auto">
+      <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-md w-full shadow-2xl my-8">
+        <div className="flex items-center justify-between p-5 border-b border-slate-800">
+          <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+            <Settings size={18} className="text-cyan-400" />
+            Sincronización GitHub Gist
+          </h3>
+          <button
+            onClick={onClose}
+            className="text-slate-500 hover:text-slate-300 p-1"
+          >
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="text-xs text-slate-400 leading-relaxed space-y-1.5">
+            <p>
+              Guarda tu colección en un <b>gist secreto</b> tuyo para verla en otros dispositivos.
+              El token y el ID se guardan solo en este navegador.
+            </p>
+            <p className="text-slate-500">
+              Usa un token <b>classic</b> (empieza por <code className="text-slate-300">ghp_</code>) en <span className="text-slate-300">GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)</span> con el scope <b className="text-slate-300">gist</b> marcado.
+            </p>
+            <p className="text-amber-400/80">
+              Los tokens fine-grained <b>no funcionan todavía</b> con la API de Gists (devuelven 403).
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">
+              Token personal classic (ghp_…)
+            </label>
+            <div className="relative">
+              <input
+                type={showToken ? "text" : "password"}
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                placeholder="ghp_..."
+                className="w-full bg-slate-800 border border-slate-700 focus:border-cyan-500 rounded-lg px-3 py-2 pr-10 text-xs font-mono placeholder-slate-600 focus:outline-none"
+                autoComplete="off"
+                spellCheck="false"
+              />
+              <button
+                onClick={() => setShowToken(!showToken)}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-wider text-slate-500 hover:text-slate-300 font-bold"
+              >
+                {showToken ? "Ocultar" : "Ver"}
+              </button>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-[10px] uppercase tracking-wider font-bold text-slate-400 mb-1">
+              Gist ID {connected && <span className="text-emerald-400 normal-case tracking-normal">· conectado</span>}
+            </label>
+            <input
+              type="text"
+              value={gistIdInput}
+              onChange={(e) => setGistIdInput(e.target.value)}
+              placeholder="(vacío si vas a crear uno nuevo)"
+              className="w-full bg-slate-800 border border-slate-700 focus:border-cyan-500 rounded-lg px-3 py-2 text-xs font-mono placeholder-slate-600 focus:outline-none"
+              autoComplete="off"
+              spellCheck="false"
+            />
+            {connected && (
+              <p className="text-[10px] text-slate-500 mt-1">
+                Copia este ID en el otro dispositivo y pulsa <b>Conectar</b> allí.
+              </p>
+            )}
+          </div>
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-300 break-words">
+              {error}
+            </div>
+          )}
+
+          {!connected ? (
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => onCreateGist(tokenInput.trim())}
+                disabled={!canCreate || busy}
+                className="py-2.5 bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-800 disabled:text-slate-600 rounded-lg text-sm font-semibold text-white"
+              >
+                Crear gist nuevo
+              </button>
+              <button
+                onClick={() => onConnect(tokenInput.trim(), gistIdInput.trim())}
+                disabled={!canConnect || busy}
+                className="py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:bg-slate-800 disabled:text-slate-600 rounded-lg text-sm font-semibold text-white"
+              >
+                Conectar a gist
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={onSyncNow}
+                  disabled={busy}
+                  className="py-2.5 bg-cyan-600 hover:bg-cyan-500 disabled:opacity-50 rounded-lg text-sm font-semibold text-white flex items-center justify-center gap-1.5"
+                >
+                  <RefreshCw size={14} /> Subir ahora
+                </button>
+                <button
+                  onClick={onPullNow}
+                  disabled={busy}
+                  className="py-2.5 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 rounded-lg text-sm font-semibold text-white flex items-center justify-center gap-1.5"
+                >
+                  <Download size={14} /> Descargar ahora
+                </button>
+              </div>
+              <button
+                onClick={onDisconnect}
+                className="w-full py-2 text-xs text-slate-500 hover:text-red-400 flex items-center justify-center gap-1"
+              >
+                <CloudOff size={14} />
+                Desconectar de este dispositivo
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Auto-montaje cuando se carga como página (index.html).
+// Si se importa como módulo desde otro sitio, no hace nada salvo que exista #root.
+if (typeof document !== "undefined") {
+  const rootEl = document.getElementById("root");
+  if (rootEl && !rootEl.dataset.mounted) {
+    rootEl.dataset.mounted = "true";
+    createRoot(rootEl).render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>
+    );
+  }
 }
