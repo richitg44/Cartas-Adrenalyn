@@ -513,13 +513,16 @@ const downloadListAsPdf = async ({ title, subtitle, sections, filename }) => {
     doc.text(section.title, MARGIN + 5, y);
     y += 6;
 
-    doc.setFont("helvetica", "normal");
-    doc.setFontSize(10);
-    doc.setTextColor(30, 41, 59);
     section.items.forEach(item => {
       const lines = doc.splitTextToSize(item, CONTENT_W - 8);
       const lineH = 4.6;
       ensure(lines.length * lineH);
+      // Reafirmar estilo en cada ítem: drawPageChrome cambia color/font
+      // al dibujar pie de página, y si hay salto de página a mitad de
+      // sección, arrastraría ese gris claro al primer ítem de la nueva.
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(10);
+      doc.setTextColor(30, 41, 59);
       doc.text(lines, MARGIN + 8, y);
       y += lines.length * lineH;
     });
