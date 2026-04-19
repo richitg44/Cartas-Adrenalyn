@@ -1,4 +1,5 @@
-import { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { createRoot } from "react-dom/client";
 import {
   Plus, Minus, Download, Search, X, Check,
   AlertCircle, Copy, Trash2, RotateCcw, Edit2, ChevronDown
@@ -276,49 +277,44 @@ export default function App() {
   const [confirmReset, setConfirmReset] = useState(false);
   const inputRef = useRef(null);
 
-  // Carga inicial desde storage (con migración desde v1)
+  // Carga inicial desde localStorage (con migración desde v1)
   useEffect(() => {
-    (async () => {
-      try {
-        const result = await window.storage.get(STORAGE_KEY);
-        if (result && result.value) {
-          const data = JSON.parse(result.value);
-          setCounts(data.counts || {});
-          setBisCounts(data.bisCounts || {});
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        setCounts(data.counts || {});
+        setBisCounts(data.bisCounts || {});
+      } else {
+        // Intentar migrar desde v1
+        const legacy = localStorage.getItem(LEGACY_STORAGE_KEY);
+        let initCounts;
+        if (legacy) {
+          initCounts = JSON.parse(legacy);
         } else {
-          // Intentar migrar desde v1
-          let legacy = null;
-          try {
-            legacy = await window.storage.get(LEGACY_STORAGE_KEY);
-          } catch {}
-          let initCounts;
-          if (legacy && legacy.value) {
-            initCounts = JSON.parse(legacy.value);
-          } else {
-            initCounts = {};
-            INITIAL_OWNED.forEach(n => { initCounts[n] = 1; });
-          }
-          setCounts(initCounts);
-          setBisCounts({});
-          await window.storage.set(
-            STORAGE_KEY,
-            JSON.stringify({ counts: initCounts, bisCounts: {} })
-          );
+          initCounts = {};
+          INITIAL_OWNED.forEach(n => { initCounts[n] = 1; });
         }
-      } catch (e) {
-        const init = {};
-        INITIAL_OWNED.forEach(n => { init[n] = 1; });
-        setCounts(init);
+        setCounts(initCounts);
         setBisCounts({});
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ counts: initCounts, bisCounts: {} })
+        );
       }
-      setLoaded(true);
-    })();
+    } catch (e) {
+      const init = {};
+      INITIAL_OWNED.forEach(n => { init[n] = 1; });
+      setCounts(init);
+      setBisCounts({});
+    }
+    setLoaded(true);
   }, []);
 
   // Guardar: siempre persiste counts + bisCounts juntos
-  const saveAll = async (nextCounts, nextBis) => {
+  const saveAll = (nextCounts, nextBis) => {
     try {
-      await window.storage.set(
+      localStorage.setItem(
         STORAGE_KEY,
         JSON.stringify({ counts: nextCounts, bisCounts: nextBis })
       );
@@ -327,14 +323,14 @@ export default function App() {
     }
   };
 
-  const persist = async (newCounts) => {
+  const persist = (newCounts) => {
     setCounts(newCounts);
-    await saveAll(newCounts, bisCounts);
+    saveAll(newCounts, bisCounts);
   };
 
-  const persistBis = async (newBis) => {
+  const persistBis = (newBis) => {
     setBisCounts(newBis);
-    await saveAll(counts, newBis);
+    saveAll(counts, newBis);
   };
 
   // Toast
@@ -568,10 +564,10 @@ export default function App() {
     }
   };
 
-  const resetAll = async () => {
+  const resetAll = () => {
     setCounts({});
     setBisCounts({});
-    await saveAll({}, {});
+    saveAll({}, {});
     setConfirmReset(false);
     showToast("Colección reiniciada");
   };
@@ -1248,4 +1244,18 @@ function CardRow({
       </div>
     </div>
   );
+}
+
+// Auto-montaje cuando se carga como página (index.html).
+// Si se importa como módulo desde otro sitio, no hace nada salvo que exista #root.
+if (typeof document !== "undefined") {
+  const rootEl = document.getElementById("root");
+  if (rootEl && !rootEl.dataset.mounted) {
+    rootEl.dataset.mounted = "true";
+    createRoot(rootEl).render(
+      <React.StrictMode>
+        <App />
+      </React.StrictMode>
+    );
+  }
 }
