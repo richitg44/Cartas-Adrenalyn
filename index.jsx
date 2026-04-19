@@ -440,6 +440,102 @@ const downloadText = (text, filename) => {
   URL.revokeObjectURL(url);
 };
 
+// Dibuja un listado (faltantes / repetidas) en un canvas y lo descarga como JPG
+// con ancho fijo (óptimo para subir a Wallapop). La altura se calcula dinámicamente.
+// `sections` = [{ title, color, items: [string] }].
+const downloadListAsJpg = ({ title, subtitle, sections, footer, filename }) => {
+  const W = 1080;
+  const PAD_X = 48;
+  const PAD_TOP = 56;
+  const PAD_BOTTOM = 56;
+  const FONT = `"Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif`;
+  const TITLE_SIZE = 56;
+  const SUBTITLE_SIZE = 26;
+  const SECTION_SIZE = 32;
+  const ITEM_SIZE = 24;
+  const LINE_GAP = 14;
+  const SECTION_GAP = 34;
+  const ITEM_H = ITEM_SIZE + LINE_GAP;
+
+  // Calcular altura total
+  let H = PAD_TOP + TITLE_SIZE + 14 + SUBTITLE_SIZE + 30;
+  sections.forEach(s => {
+    H += SECTION_SIZE + 12 + s.items.length * ITEM_H + SECTION_GAP;
+  });
+  if (footer) H += 40;
+  H += PAD_BOTTOM;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext("2d");
+
+  // Fondo blanco
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, W, H);
+
+  // Banda superior
+  ctx.fillStyle = "#F97316";
+  ctx.fillRect(0, 0, W, 12);
+
+  let y = PAD_TOP + TITLE_SIZE;
+  ctx.textBaseline = "alphabetic";
+  ctx.font = `900 ${TITLE_SIZE}px ${FONT}`;
+  ctx.fillStyle = "#0F172A";
+  ctx.fillText(title, PAD_X, y);
+  y += 16 + SUBTITLE_SIZE;
+  ctx.font = `500 ${SUBTITLE_SIZE}px ${FONT}`;
+  ctx.fillStyle = "#64748B";
+  ctx.fillText(subtitle, PAD_X, y);
+  y += 30;
+
+  sections.forEach(s => {
+    // Barra de color a la izquierda del título de sección
+    ctx.fillStyle = s.color || "#0F172A";
+    ctx.fillRect(PAD_X, y - SECTION_SIZE + 6, 6, SECTION_SIZE);
+    ctx.font = `800 ${SECTION_SIZE}px ${FONT}`;
+    ctx.fillStyle = "#0F172A";
+    ctx.fillText(s.title, PAD_X + 18, y);
+    y += 12;
+
+    ctx.font = `500 ${ITEM_SIZE}px ${FONT}`;
+    s.items.forEach(item => {
+      y += ITEM_H;
+      // Truncar si se pasa del ancho disponible
+      const maxW = W - PAD_X * 2 - 20;
+      let text = item;
+      if (ctx.measureText(text).width > maxW) {
+        while (text.length > 0 && ctx.measureText(text + "…").width > maxW) {
+          text = text.slice(0, -1);
+        }
+        text = text + "…";
+      }
+      ctx.fillStyle = "#1E293B";
+      ctx.fillText(text, PAD_X + 20, y);
+    });
+    y += SECTION_GAP;
+  });
+
+  if (footer) {
+    y += 10;
+    ctx.font = `500 20px ${FONT}`;
+    ctx.fillStyle = "#94A3B8";
+    ctx.fillText(footer, PAD_X, y);
+  }
+
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, "image/jpeg", 0.92);
+};
+
 export default function App() {
   const [counts, setCounts] = useState({});
   const [bisCounts, setBisCounts] = useState({});
@@ -910,6 +1006,41 @@ export default function App() {
     showToast("Lista de faltantes descargada");
   };
 
+  // Descargar faltantes como imagen JPG (formato óptimo para Wallapop)
+  const downloadMissingImage = () => {
+    const sections = [];
+    GROUPS.forEach(g => {
+      const items = [];
+      for (let n = g.start; n <= g.end; n++) {
+        if (!counts[n] || counts[n] === 0) {
+          const card = CARDS.find(c => c[0] === n);
+          items.push(`#${n}  ${card ? card[1] : ""}`);
+        }
+      }
+      missingBisCards
+        .filter(b => b.number >= g.start && b.number <= g.end)
+        .forEach(b => {
+          const card = CARDS.find(c => c[0] === b.number);
+          items.push(`#${b.number} BIS  ${card ? card[1] : ""} · ${b.bisName}`);
+        });
+      if (items.length > 0) sections.push({ title: g.name, color: g.color, items });
+    });
+    if (sections.length === 0) {
+      showToast("No te falta nada, no hay nada que exportar", "warn");
+      return;
+    }
+    const bisTxt = missingBisCards.length > 0 ? ` · ${missingBisCards.length} BIS` : "";
+    const date = new Date().toISOString().slice(0, 10);
+    downloadListAsJpg({
+      title: "CARTAS QUE ME FALTAN",
+      subtitle: `${stats.missing} normales${bisTxt} · Adrenalyn XL LaLiga 2025-26`,
+      sections,
+      footer: `Generado el ${date}`,
+      filename: `faltantes_adrenalyn_${date}.jpg`,
+    });
+    showToast("Imagen de faltantes descargada");
+  };
+
   // Descargar repetidas
   const downloadDupes = () => {
     const dupes = Object.entries(counts)
@@ -952,6 +1083,43 @@ export default function App() {
     const date = new Date().toISOString().slice(0, 10);
     downloadText(text, `repetidas_adrenalyn_${date}.txt`);
     showToast("Lista de repetidas descargada");
+  };
+
+  // Descargar repetidas como imagen JPG (formato óptimo para Wallapop)
+  const downloadDupesImage = () => {
+    const sections = [];
+    GROUPS.forEach(g => {
+      const items = [];
+      for (let n = g.start; n <= g.end; n++) {
+        const c = counts[n] || 0;
+        if (c > 1) {
+          const card = CARDS.find(cc => cc[0] === n);
+          items.push(`#${n}  ${card ? card[1] : ""}  (x${c - 1})`);
+        }
+      }
+      for (let n = g.start; n <= g.end; n++) {
+        const bc = bisCounts[n] || 0;
+        if (bc > 1) {
+          const card = CARDS.find(cc => cc[0] === n);
+          const suffix = BIS_NAMES[n] ? ` · ${BIS_NAMES[n]}` : "";
+          items.push(`#${n} BIS  ${card ? card[1] : ""}${suffix}  (x${bc - 1})`);
+        }
+      }
+      if (items.length > 0) sections.push({ title: g.name, color: g.color, items });
+    });
+    if (sections.length === 0) {
+      showToast("No tienes repetidas que exportar", "warn");
+      return;
+    }
+    const date = new Date().toISOString().slice(0, 10);
+    downloadListAsJpg({
+      title: "MIS CARTAS REPETIDAS",
+      subtitle: `${stats.duplicates} repetidas para intercambio · Adrenalyn XL LaLiga 2025-26`,
+      sections,
+      footer: `Generado el ${date} · Disponibles para cambio`,
+      filename: `repetidas_adrenalyn_${date}.jpg`,
+    });
+    showToast("Imagen de repetidas descargada");
   };
 
   // Copiar al portapapeles
@@ -1184,6 +1352,7 @@ export default function App() {
             onInc={incCard}
             onBisInc={incBis}
             onDownload={downloadMissing}
+            onDownloadImage={downloadMissingImage}
             onCopy={copyMissing}
           />
         )}
@@ -1200,6 +1369,7 @@ export default function App() {
             onBisDec={decBis}
             onBisSetCount={setBisCardCount}
             onDownload={downloadDupes}
+            onDownloadImage={downloadDupesImage}
             onCopy={copyDupes}
           />
         )}
@@ -1377,24 +1547,31 @@ function ColeccionView({ cards, counts, bisCounts, onInc, onDec, onSetCount, onB
 }
 
 // ========== VISTA FALTANTES ==========
-function FaltantesView({ missingCards, missingBisCards = [], onInc, onBisInc, onDownload, onCopy }) {
+function FaltantesView({ missingCards, missingBisCards = [], onInc, onBisInc, onDownload, onDownloadImage, onCopy }) {
   const nothingMissing = missingCards.length === 0 && missingBisCards.length === 0;
   return (
     <div>
-      <div className="grid grid-cols-2 gap-2 mb-4">
+      <div className="grid grid-cols-3 gap-2 mb-4">
         <button
           onClick={onDownload}
-          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-3 text-sm font-semibold flex items-center justify-center gap-2"
+          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
         >
-          <Download size={16} className="text-orange-400" />
-          Descargar .txt
+          <Download size={14} className="text-orange-400" />
+          .txt
+        </button>
+        <button
+          onClick={onDownloadImage}
+          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
+        >
+          <Download size={14} className="text-emerald-400" />
+          Imagen
         </button>
         <button
           onClick={onCopy}
-          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-3 text-sm font-semibold flex items-center justify-center gap-2"
+          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
         >
-          <Copy size={16} className="text-orange-400" />
-          Copiar números
+          <Copy size={14} className="text-orange-400" />
+          Copiar
         </button>
       </div>
 
@@ -1467,23 +1644,30 @@ function FaltantesView({ missingCards, missingBisCards = [], onInc, onBisInc, on
 }
 
 // ========== VISTA REPETIDAS ==========
-function RepetidasView({ dupeCards, counts, bisCounts, onInc, onDec, onSetCount, onBisInc, onBisDec, onBisSetCount, onDownload, onCopy }) {
+function RepetidasView({ dupeCards, counts, bisCounts, onInc, onDec, onSetCount, onBisInc, onBisDec, onBisSetCount, onDownload, onDownloadImage, onCopy }) {
   return (
     <div>
-      <div className="grid grid-cols-2 gap-2 mb-4">
+      <div className="grid grid-cols-3 gap-2 mb-4">
         <button
           onClick={onDownload}
-          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-3 text-sm font-semibold flex items-center justify-center gap-2"
+          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
         >
-          <Download size={16} className="text-amber-400" />
-          Descargar .txt
+          <Download size={14} className="text-amber-400" />
+          .txt
+        </button>
+        <button
+          onClick={onDownloadImage}
+          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
+        >
+          <Download size={14} className="text-emerald-400" />
+          Imagen
         </button>
         <button
           onClick={onCopy}
-          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-3 text-sm font-semibold flex items-center justify-center gap-2"
+          className="bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg py-2.5 px-2 text-xs font-semibold flex items-center justify-center gap-1.5"
         >
-          <Copy size={16} className="text-amber-400" />
-          Copiar resumen
+          <Copy size={14} className="text-amber-400" />
+          Copiar
         </button>
       </div>
 
