@@ -34,10 +34,22 @@
     <div id="root"></div>
 
     <!--
-      Carga index.jsx, lo transpila y lo ejecuta como módulo ES.
-      El propio index.jsx monta la App en #root.
+      Cache-bust de index.jsx: añadimos ?t=<timestamp> para forzar al
+      navegador (y a la CDN de GitHub Pages) a traer siempre la versión
+      más reciente en vez de una copia cacheada. Se crea el <script>
+      dinámicamente antes del DOMContentLoaded, así que Babel Standalone
+      lo detecta y lo transpila con normalidad.
     -->
-    <script type="text/babel" data-type="module" data-presets="react" src="./index.jsx"></script>
+    <script>
+      (function () {
+        var s = document.createElement("script");
+        s.type = "text/babel";
+        s.setAttribute("data-type", "module");
+        s.setAttribute("data-presets", "react");
+        s.src = "./index.jsx?t=" + Date.now();
+        document.body.appendChild(s);
+      })();
+    </script>
 
     <noscript>
       <div style="color:#e2e8f0;padding:2rem;text-align:center;font-family:sans-serif">
