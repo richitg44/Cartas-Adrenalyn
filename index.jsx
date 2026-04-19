@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 
 // ============================================================
-// DATOS DE CARTAS (478 total)
+// DATOS DE CARTAS (522 total incl. Actualización Plus)
 // ============================================================
 const CARDS = [
   // D. Alavés (1-18)
@@ -181,6 +181,33 @@ const CARDS = [
   [471, "Pedri"], [472, "Lamine Yamal"], [473, "Vinícius"], [474, "Mbappé"],
   [475, "Balón de Oro Excellence"], [476, "Card Atómica"],
   [477, "Card Invencible"], [478, "Campeón Card"],
+  // === ACTUALIZACIÓN PLUS ===
+  // Entrenadores (479-498)
+  [479, "Eduardo Coudet"], [480, "Ernesto Valverde"], [481, "Diego Pablo Simeone"],
+  [482, "Hansi Flick"], [483, "Manuel Pellegrini"], [484, "Claudio Giráldez"],
+  [485, "Eder Sarabia"], [486, "Manolo González"], [487, "José Bordalás"],
+  [488, "Míchel"], [489, "Luis Castro"], [490, "Álvaro Arbeloa"],
+  [491, "Jagoba Arrasate"], [492, "Alessio Lisci"], [493, "Guillermo Almada"],
+  [494, "Íñigo Pérez"], [495, "Pellegrino Matarazzo"], [496, "Matías Almeyda"],
+  [497, "Carlos Corberán"], [498, "Marcelino García"],
+  // Nuevos Guantes de Oro (499-500)
+  [499, "Dmitrovic"], [500, "Ter Stegen"],
+  // Nueva Kryptonita (501-503)
+  [501, "Pubill"], [502, "Gerard Martín"], [503, "Asencio"],
+  // Nuevos Diamantes (504-508)
+  [504, "Selton"], [505, "El-Abdellaoui"], [506, "Echeverri"],
+  [507, "Nobel Mendy"], [508, "Oso"],
+  // Nuevos Protas (509-513)
+  [509, "Rodri Mendoza"], [510, "Aitor Ruibal"], [511, "Miguel Román"],
+  [512, "Carlos Romero"], [513, "Maupay"],
+  // Nuevos Super Cracks (514-517)
+  [514, "Giuliano"], [515, "Joao Cancelo"], [516, "Rodrygo"], [517, "Guedes"],
+  // Master Míster (518-519)
+  [518, "Hansi Flick"], [519, "Marcelino García"],
+  // Card Fantástica (520)
+  [520, "Card Fantástica"],
+  // Nuevo Balón de Oro (521-522)
+  [521, "Courtois"], [522, "Pedri firmado"],
 ];
 
 // Grupos: rangos y colores
@@ -213,6 +240,16 @@ const GROUPS = [
   { id: "protas", name: "Protas", start: 424, end: 441, color: "#F97316" },
   { id: "supercracks", name: "Super Cracks", start: 442, end: 467, color: "#EAB308" },
   { id: "especiales", name: "Especiales", start: 468, end: 478, color: "#DC2626" },
+  // === ACTUALIZACIÓN PLUS ===
+  { id: "entrenadores", name: "Entrenadores (Plus)", start: 479, end: 498, color: "#64748B" },
+  { id: "newguantes", name: "Nuevos Guantes de Oro (Plus)", start: 499, end: 500, color: "#F59E0B" },
+  { id: "newkryptonita", name: "Nueva Kryptonita (Plus)", start: 501, end: 503, color: "#10B981" },
+  { id: "newdiamantes", name: "Nuevos Diamantes (Plus)", start: 504, end: 508, color: "#06B6D4" },
+  { id: "newprotas", name: "Nuevos Protas (Plus)", start: 509, end: 513, color: "#F97316" },
+  { id: "newsupercracks", name: "Nuevos Super Cracks (Plus)", start: 514, end: 517, color: "#EAB308" },
+  { id: "master", name: "Master Míster (Plus)", start: 518, end: 519, color: "#8B5CF6" },
+  { id: "fantastica", name: "Card Fantástica (Plus)", start: 520, end: 520, color: "#EC4899" },
+  { id: "newbalonoro", name: "Nuevo Balón de Oro (Plus)", start: 521, end: 522, color: "#DC2626" },
 ];
 
 // Cartas precargadas del checklist analizado
@@ -642,11 +679,11 @@ export default function App() {
       const m = t.match(/^(\d+)(b|bis)?$/i);
       if (!m) return null;
       const n = parseInt(m[1], 10);
-      if (isNaN(n) || n < 1 || n > 478) return null;
+      if (isNaN(n) || n < 1 || n > 522) return null;
       return { n, bis: !!m[2] };
     }).filter(Boolean);
     if (parsed.length === 0) {
-      showToast("Número no válido (1-478, opcional sufijo 'b' o 'bis')", "error");
+      showToast("Número no válido (1-522, opcional sufijo 'b' o 'bis')", "error");
       return;
     }
     const newCounts = { ...counts };
@@ -738,7 +775,7 @@ export default function App() {
 
   // Estadísticas
   const stats = useMemo(() => {
-    const total = 478;
+    const total = 522;
     const owned = Object.values(counts).filter(c => c > 0).length;
     const duplicates = Object.entries(counts)
       .filter(([, c]) => c > 1)
@@ -824,7 +861,7 @@ export default function App() {
   // Copiar al portapapeles
   const copyMissing = async () => {
     const nums = [];
-    for (let n = 1; n <= 478; n++) {
+    for (let n = 1; n <= 522; n++) {
       if (!counts[n] || counts[n] === 0) nums.push(n);
     }
     try {
@@ -1253,7 +1290,7 @@ function FaltantesView({ missingCards, onInc, onDownload, onCopy }) {
         <div className="text-center py-16">
           <div className="text-6xl mb-3">🏆</div>
           <p className="text-emerald-400 font-bold text-lg">¡Colección completa!</p>
-          <p className="text-slate-500 text-sm mt-1">Ya tienes las 478 cartas</p>
+          <p className="text-slate-500 text-sm mt-1">Ya tienes las 522 cartas</p>
         </div>
       ) : (
         <div className="space-y-4">
