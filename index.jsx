@@ -263,7 +263,13 @@ async function githubFetch(url, token, options = {}) {
     ...(options.headers || {}),
   };
   if (options.body) headers["Content-Type"] = "application/json";
-  const res = await fetch(url, { ...options, headers });
+  // Cache-buster para GET: evita que el navegador nos sirva una versión antigua
+  // (se nota al borrar cartas: el pull traía la copia cacheada).
+  let finalUrl = url;
+  if (!options.method || options.method.toUpperCase() === "GET") {
+    finalUrl += (url.includes("?") ? "&" : "?") + "_=" + Date.now();
+  }
+  const res = await fetch(finalUrl, { ...options, headers, cache: "no-store" });
   if (!res.ok) {
     let detail = "";
     try { detail = (await res.text()).slice(0, 300); } catch {}
@@ -411,6 +417,41 @@ export default function App() {
         setSyncError(e.message);
       }
     })();
+  }, [loaded, syncToken, syncGistId]);
+
+  // Pull cada vez que la pestaña vuelve a estar visible (cambio de app, vuelta a la web…).
+  // Así el otro dispositivo ve en cuanto vuelves a él los cambios hechos desde el otro.
+  useEffect(() => {
+    if (!loaded || !syncToken || !syncGistId) return;
+    const onVisible = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        setSyncStatus("syncing");
+        const data = await gistPull(syncToken, syncGistId);
+        const nextCounts = data.counts || {};
+        const nextBis = data.bisCounts || {};
+        skipNextAutoSyncRef.current = true;
+        setCounts(nextCounts);
+        setBisCounts(nextBis);
+        try {
+          localStorage.setItem(
+            STORAGE_KEY,
+            JSON.stringify({ counts: nextCounts, bisCounts: nextBis })
+          );
+        } catch {}
+        setSyncStatus("synced");
+        setSyncError("");
+      } catch (e) {
+        setSyncStatus("error");
+        setSyncError(e.message);
+      }
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
   }, [loaded, syncToken, syncGistId]);
 
   // Auto-save al gist con debounce de 1,5s cuando cambian los contadores
