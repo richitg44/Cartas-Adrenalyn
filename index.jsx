@@ -448,27 +448,32 @@ const hexToRgb = (hex) => {
   return { r: (n >> 16) & 0xff, g: (n >> 8) & 0xff, b: n & 0xff };
 };
 
-// Genera un PDF A4 multi-página con el listado (faltantes / repetidas).
-// Se pagina automáticamente en A4 vertical. `sections` = [{ title, color, items: [string] }].
+// Genera un PDF A4 multi-página con el listado (faltantes / repetidas)
+// en dos columnas por página para aprovechar mejor el papel.
+// `sections` = [{ title, color, items: [string] }].
 const downloadListAsPdf = async ({ title, subtitle, sections, filename }) => {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
 
   const PAGE_W = 210;
   const PAGE_H = 297;
-  const MARGIN = 15;
+  const MARGIN = 12;
   const CONTENT_W = PAGE_W - MARGIN * 2;
-  const BOTTOM_LIMIT = PAGE_H - 18;
-  const FOOTER_Y = PAGE_H - 8;
+  const COL_GAP = 6;
+  const COL_W = (CONTENT_W - COL_GAP) / 2;
+  const BOTTOM_LIMIT = PAGE_H - 14;
+  const FOOTER_Y = PAGE_H - 7;
+
+  const SECTION_FONT = 12;
+  const ITEM_FONT = 9.5;
+  const LINE_H = 4.2;
 
   const drawPageChrome = (pageNum) => {
-    // Banda superior naranja (acento)
     doc.setFillColor(249, 115, 22);
     doc.rect(0, 0, PAGE_W, 3, "F");
-    // Pie de página
     doc.setTextColor(148, 163, 184);
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.text("Adrenalyn XL LaLiga 2025-26", MARGIN, FOOTER_Y);
     doc.text(`Página ${pageNum}`, PAGE_W - MARGIN, FOOTER_Y, { align: "right" });
   };
@@ -476,57 +481,86 @@ const downloadListAsPdf = async ({ title, subtitle, sections, filename }) => {
   let pageNum = 1;
   drawPageChrome(pageNum);
 
-  // Cabecera primera página
+  // Cabecera primera página (a dos columnas de ancho)
   let y = MARGIN + 6;
   doc.setTextColor(15, 23, 42);
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(22);
+  doc.setFontSize(20);
   doc.text(title, MARGIN, y);
-  y += 8;
+  y += 7;
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(11);
+  doc.setFontSize(10);
   doc.setTextColor(100, 116, 139);
   doc.text(subtitle, MARGIN, y);
-  y += 10;
+  y += 8;
+
+  let col = 0;
+  let columnStartY = y;
+
+  const colX = () => MARGIN + col * (COL_W + COL_GAP);
 
   const newPage = () => {
     doc.addPage();
     pageNum++;
     drawPageChrome(pageNum);
-    y = MARGIN + 4;
+    col = 0;
+    columnStartY = MARGIN + 5;
+    y = columnStartY;
+  };
+
+  const nextColumn = () => {
+    if (col === 0) {
+      col = 1;
+      y = columnStartY;
+    } else {
+      newPage();
+    }
   };
 
   const ensure = (needed) => {
-    if (y + needed > BOTTOM_LIMIT) newPage();
+    if (y + needed > BOTTOM_LIMIT) nextColumn();
   };
 
   sections.forEach(section => {
-    ensure(12);
+    // Pre-calcular alto del primer ítem con la fuente correcta para
+    // evitar títulos huérfanos al final de columna.
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(ITEM_FONT);
+    let firstItemH = 0;
+    if (section.items.length > 0) {
+      const lines = doc.splitTextToSize(section.items[0], COL_W - 6);
+      firstItemH = lines.length * LINE_H;
+    }
+    ensure(7 + firstItemH);
+
     // Barrita de color
     const c = hexToRgb(section.color);
     doc.setFillColor(c.r, c.g, c.b);
-    doc.rect(MARGIN, y - 3.5, 2.2, 5.5, "F");
-    // Título de sección
+    doc.rect(colX(), y - 3.2, 1.8, 4.8, "F");
+
+    // Título de sección (con wrap si el nombre es largo)
     doc.setTextColor(15, 23, 42);
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
-    doc.text(section.title, MARGIN + 5, y);
-    y += 6;
+    doc.setFontSize(SECTION_FONT);
+    const titleLines = doc.splitTextToSize(section.title, COL_W - 4);
+    doc.text(titleLines, colX() + 4, y);
+    y += titleLines.length * 4.8;
 
+    // Ítems
     section.items.forEach(item => {
-      const lines = doc.splitTextToSize(item, CONTENT_W - 8);
-      const lineH = 4.6;
-      ensure(lines.length * lineH);
-      // Reafirmar estilo en cada ítem: drawPageChrome cambia color/font
-      // al dibujar pie de página, y si hay salto de página a mitad de
-      // sección, arrastraría ese gris claro al primer ítem de la nueva.
       doc.setFont("helvetica", "normal");
-      doc.setFontSize(10);
+      doc.setFontSize(ITEM_FONT);
+      const lines = doc.splitTextToSize(item, COL_W - 6);
+      ensure(lines.length * LINE_H);
+      // Reafirmar estilo tras posible salto de página/columna.
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(ITEM_FONT);
       doc.setTextColor(30, 41, 59);
-      doc.text(lines, MARGIN + 8, y);
-      y += lines.length * lineH;
+      doc.text(lines, colX() + 5, y);
+      y += lines.length * LINE_H;
     });
-    y += 5;
+
+    y += 3;
   });
 
   const blob = doc.output("blob");
