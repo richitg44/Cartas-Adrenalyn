@@ -936,6 +936,25 @@ export default function App() {
     inputRef.current?.focus();
   };
 
+  // Inserta una "b" en la posición del cursor del quick-add (atajo móvil
+  // para marcar la versión bis sin tener que cambiar al teclado de letras).
+  const insertBis = () => {
+    const el = inputRef.current;
+    const start = el?.selectionStart ?? quickInput.length;
+    const end = el?.selectionEnd ?? start;
+    const before = quickInput.slice(0, start);
+    const after = quickInput.slice(end);
+    const next = before + "b" + after;
+    setQuickInput(next);
+    requestAnimationFrame(() => {
+      const node = inputRef.current;
+      if (!node) return;
+      node.focus();
+      const pos = before.length + 1;
+      try { node.setSelectionRange(pos, pos); } catch {}
+    });
+  };
+
   const incCard = (n) => {
     const newCounts = { ...counts };
     newCounts[n] = (newCounts[n] || 0) + 1;
@@ -1312,8 +1331,18 @@ export default function App() {
                 onChange={(e) => setQuickInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleQuickAdd()}
                 placeholder="Número(s) de carta..."
-                className="w-full bg-slate-800 border border-slate-700 focus:border-orange-500 rounded-lg px-3 py-2.5 text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                className="w-full bg-slate-800 border border-slate-700 focus:border-orange-500 rounded-lg pl-3 pr-20 py-2.5 text-sm placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-orange-500/20"
               />
+              {/* Botón "b" para marcar bis sin cambiar al teclado de letras (móvil) */}
+              <button
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={insertBis}
+                className="absolute right-9 top-1/2 -translate-y-1/2 px-2 py-0.5 rounded-md bg-cyan-500/15 hover:bg-cyan-500/25 active:bg-cyan-500/40 text-cyan-300 text-xs font-black tracking-wider"
+                title="Insertar 'b' (bis)"
+              >
+                b
+              </button>
               {quickInput && (
                 <button
                   onClick={() => setQuickInput("")}
