@@ -604,7 +604,7 @@ export default function App() {
   const [syncStatus, setSyncStatus] = useState("disconnected");
   const [syncError, setSyncError] = useState("");
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const autoSaveTimerRef = useRef(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const skipNextAutoSyncRef = useRef(false);
   const didInitialPullRef = useRef(false);
   const lastPullAtRef = useRef(0);
@@ -697,6 +697,7 @@ export default function App() {
           );
         } catch {}
         setSyncStatus("synced");
+        setHasUnsavedChanges(false);
       } catch (e) {
         if (e.isRateLimit) applyRateLimit(e);
         setSyncStatus("error");
@@ -707,51 +708,9 @@ export default function App() {
     })();
   }, [loaded, syncToken, syncGistId]);
 
-  // Pull cuando la pestaña vuelve a estar visible (cambio de app, vuelta a la web…),
-  // pero como mucho una vez cada PULL_THROTTLE_MS para no agotar el rate limit
-  // de la API de GitHub (5.000 peticiones/hora). Tampoco se pisa con un sync en curso.
-  useEffect(() => {
-    if (!loaded || !syncToken || !syncGistId) return;
-    const PULL_THROTTLE_MS = 30_000;
-    const onVisible = async () => {
-      if (document.visibilityState !== "visible") return;
-      const now = Date.now();
-      if (now - lastPullAtRef.current < PULL_THROTTLE_MS) return;
-      if (isSyncingRef.current) return;
-      if (isRateLimited()) return;
-      lastPullAtRef.current = now;
-      isSyncingRef.current = true;
-      try {
-        setSyncStatus("syncing");
-        const data = await gistPull(syncToken, syncGistId);
-        const nextCounts = data.counts || {};
-        const nextBis = data.bisCounts || {};
-        skipNextAutoSyncRef.current = true;
-        setCounts(nextCounts);
-        setBisCounts(nextBis);
-        try {
-          localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify({ counts: nextCounts, bisCounts: nextBis })
-          );
-        } catch {}
-        setSyncStatus("synced");
-        setSyncError("");
-      } catch (e) {
-        if (e.isRateLimit) applyRateLimit(e);
-        setSyncStatus("error");
-        setSyncError(e.message);
-      } finally {
-        isSyncingRef.current = false;
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [loaded, syncToken, syncGistId]);
-
-  // Auto-save al gist con debounce de 1,5s cuando cambian los contadores
+  // Sync 100% manual: cuando cambian los contadores SOLO marcamos
+  // "pendiente". El usuario sube cuando pulsa Guardar (handleSyncNow),
+  // así no se gastan peticiones de la API en cada clic.
   useEffect(() => {
     if (!loaded) return;
     if (!syncToken || !syncGistId) return;
@@ -759,32 +718,9 @@ export default function App() {
       skipNextAutoSyncRef.current = false;
       return;
     }
-    if (isRateLimited()) {
-      // Mantener el estado en error pero no agendar otro intento que va a fallar.
-      return;
-    }
-    clearTimeout(autoSaveTimerRef.current);
-    if (syncStatus !== "syncing") setSyncStatus("pending");
-    autoSaveTimerRef.current = setTimeout(async () => {
-      if (isRateLimited()) {
-        setSyncStatus("error");
-        return;
-      }
-      setSyncStatus("syncing");
-      setSyncError("");
-      try {
-        await gistPush(syncToken, syncGistId, {
-          counts, bisCounts, updatedAt: Date.now(),
-        });
-        setSyncStatus("synced");
-      } catch (e) {
-        if (e.isRateLimit) applyRateLimit(e);
-        setSyncStatus("error");
-        setSyncError(e.message);
-      }
-    }, 1500);
-    return () => clearTimeout(autoSaveTimerRef.current);
-  }, [counts, bisCounts, loaded, syncToken, syncGistId, rateLimitedUntil]);
+    setHasUnsavedChanges(true);
+    setSyncStatus("pending");
+  }, [counts, bisCounts, loaded, syncToken, syncGistId]);
 
   // Guardar: siempre persiste counts + bisCounts juntos
   const saveAll = (nextCounts, nextBis) => {
@@ -841,8 +777,10 @@ export default function App() {
       setSyncGistId(gist.id);
       persistSyncConfig(token, gist.id);
       setSyncStatus("synced");
+      setHasUnsavedChanges(false);
       showToast(`Gist creado · ID: ${gist.id.slice(0, 8)}…`);
     } catch (e) {
+      if (e.isRateLimit) applyRateLimit(e);
       setSyncStatus("error");
       setSyncError(e.message);
       showToast("Error al crear gist", "error");
@@ -874,18 +812,23 @@ export default function App() {
       setSyncGistId(gistId);
       persistSyncConfig(token, gistId);
       setSyncStatus("synced");
+      setHasUnsavedChanges(false);
       showToast("Conectado y colección descargada");
     } catch (e) {
+      if (e.isRateLimit) applyRateLimit(e);
       setSyncStatus("error");
       setSyncError(e.message);
       showToast("No se pudo conectar al gist", "error");
     }
   };
 
-  // Sincroniza ahora (push manual)
+  // Sincroniza ahora (push manual). Es la ÚNICA forma de subir cambios.
   const handleSyncNow = async () => {
     if (!syncToken || !syncGistId) return;
-    clearTimeout(autoSaveTimerRef.current);
+    if (isRateLimited()) {
+      showToast("Sync en pausa por límite de la API", "warn");
+      return;
+    }
     setSyncStatus("syncing");
     setSyncError("");
     try {
@@ -893,17 +836,23 @@ export default function App() {
         counts, bisCounts, updatedAt: Date.now(),
       });
       setSyncStatus("synced");
-      showToast("Sincronizado con el gist");
+      setHasUnsavedChanges(false);
+      showToast("Cambios guardados en el gist");
     } catch (e) {
+      if (e.isRateLimit) applyRateLimit(e);
       setSyncStatus("error");
       setSyncError(e.message);
-      showToast("Error al sincronizar", "error");
+      showToast("Error al guardar", "error");
     }
   };
 
   // Pull manual (trae lo último del gist sobreescribiendo lo local)
   const handlePullNow = async () => {
     if (!syncToken || !syncGistId) return;
+    if (isRateLimited()) {
+      showToast("Sync en pausa por límite de la API", "warn");
+      return;
+    }
     setSyncStatus("syncing");
     setSyncError("");
     try {
@@ -920,8 +869,10 @@ export default function App() {
         );
       } catch {}
       setSyncStatus("synced");
+      setHasUnsavedChanges(false);
       showToast("Descargado desde el gist");
     } catch (e) {
+      if (e.isRateLimit) applyRateLimit(e);
       setSyncStatus("error");
       setSyncError(e.message);
       showToast("Error al descargar", "error");
@@ -929,12 +880,12 @@ export default function App() {
   };
 
   const handleDisconnect = () => {
-    clearTimeout(autoSaveTimerRef.current);
     setSyncToken("");
     setSyncGistId("");
     persistSyncConfig("", "");
     setSyncStatus("disconnected");
     setSyncError("");
+    setHasUnsavedChanges(false);
     showToast("Desconectado de GitHub Gist");
   };
 
@@ -1345,10 +1296,26 @@ export default function App() {
               </p>
             </div>
             <div className="flex items-start gap-2">
-              <SyncBadge
-                status={syncStatus}
-                onClick={() => setSettingsOpen(true)}
-              />
+              <div className="flex flex-col items-start gap-1">
+                <SyncBadge
+                  status={syncStatus}
+                  onClick={() => setSettingsOpen(true)}
+                />
+                {syncToken && syncGistId && (
+                  <button
+                    onClick={handleSyncNow}
+                    disabled={!hasUnsavedChanges || syncStatus === "syncing" || (rateLimitedUntil > Date.now())}
+                    className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md border transition-colors ${
+                      hasUnsavedChanges && syncStatus !== "syncing" && !(rateLimitedUntil > Date.now())
+                        ? "bg-cyan-500 hover:bg-cyan-400 text-white border-cyan-400 shadow shadow-cyan-500/20"
+                        : "bg-slate-800 text-slate-500 border-slate-700 cursor-not-allowed"
+                    }`}
+                    title="Subir cambios al gist"
+                  >
+                    {hasUnsavedChanges ? "Guardar" : "Guardado"}
+                  </button>
+                )}
+              </div>
               <div className="text-right">
                 <div className="text-2xl font-black text-orange-500 leading-none">
                   {stats.owned}<span className="text-slate-600 text-lg">/{stats.total}</span>
