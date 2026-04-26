@@ -392,7 +392,18 @@ async function githubFetch(url, token, options = {}) {
   if (!res.ok) {
     let detail = "";
     try { detail = (await res.text()).slice(0, 300); } catch {}
-    throw new Error(`${res.status} ${res.statusText}${detail ? " · " + detail : ""}`);
+    const err = new Error(`${res.status} ${res.statusText}${detail ? " · " + detail : ""}`);
+    err.status = res.status;
+    // Rate-limit info: GitHub devuelve segundos epoch en x-ratelimit-reset.
+    // Si lo tenemos, el llamador lo usa para pausar peticiones hasta ese momento.
+    const reset = res.headers.get("x-ratelimit-reset");
+    const remaining = res.headers.get("x-ratelimit-remaining");
+    if (res.status === 403 && (reset || /rate limit/i.test(detail))) {
+      err.isRateLimit = true;
+      if (reset) err.rateLimitResetAt = parseInt(reset, 10) * 1000;
+    }
+    if (remaining != null) err.rateLimitRemaining = parseInt(remaining, 10);
+    throw err;
   }
   return res.json();
 }
@@ -598,6 +609,22 @@ export default function App() {
   const didInitialPullRef = useRef(false);
   const lastPullAtRef = useRef(0);
   const isSyncingRef = useRef(false);
+  const rateLimitedUntilRef = useRef(0);
+  const [rateLimitedUntil, setRateLimitedUntil] = useState(0);
+
+  // Aplicar pausa por rate limit (la 403 nos dice cuándo se reactiva).
+  // Si la API no devuelve cabecera, asumimos 1 hora desde ahora.
+  const applyRateLimit = (err) => {
+    let until = err?.rateLimitResetAt;
+    if (!until) until = Date.now() + 60 * 60 * 1000;
+    rateLimitedUntilRef.current = until;
+    setRateLimitedUntil(until);
+  };
+  const isRateLimited = () => Date.now() < rateLimitedUntilRef.current;
+  const clearRateLimit = () => {
+    rateLimitedUntilRef.current = 0;
+    setRateLimitedUntil(0);
+  };
 
   // Carga inicial desde localStorage (con migración desde v1)
   useEffect(() => {
@@ -649,6 +676,7 @@ export default function App() {
     if (!loaded) return;
     if (didInitialPullRef.current) return;
     if (!syncToken || !syncGistId) return;
+    if (isRateLimited()) return;
     didInitialPullRef.current = true;
     isSyncingRef.current = true;
     lastPullAtRef.current = Date.now();
@@ -670,6 +698,7 @@ export default function App() {
         } catch {}
         setSyncStatus("synced");
       } catch (e) {
+        if (e.isRateLimit) applyRateLimit(e);
         setSyncStatus("error");
         setSyncError(e.message);
       } finally {
@@ -689,6 +718,7 @@ export default function App() {
       const now = Date.now();
       if (now - lastPullAtRef.current < PULL_THROTTLE_MS) return;
       if (isSyncingRef.current) return;
+      if (isRateLimited()) return;
       lastPullAtRef.current = now;
       isSyncingRef.current = true;
       try {
@@ -708,6 +738,7 @@ export default function App() {
         setSyncStatus("synced");
         setSyncError("");
       } catch (e) {
+        if (e.isRateLimit) applyRateLimit(e);
         setSyncStatus("error");
         setSyncError(e.message);
       } finally {
@@ -728,9 +759,17 @@ export default function App() {
       skipNextAutoSyncRef.current = false;
       return;
     }
+    if (isRateLimited()) {
+      // Mantener el estado en error pero no agendar otro intento que va a fallar.
+      return;
+    }
     clearTimeout(autoSaveTimerRef.current);
     if (syncStatus !== "syncing") setSyncStatus("pending");
     autoSaveTimerRef.current = setTimeout(async () => {
+      if (isRateLimited()) {
+        setSyncStatus("error");
+        return;
+      }
       setSyncStatus("syncing");
       setSyncError("");
       try {
@@ -739,12 +778,13 @@ export default function App() {
         });
         setSyncStatus("synced");
       } catch (e) {
+        if (e.isRateLimit) applyRateLimit(e);
         setSyncStatus("error");
         setSyncError(e.message);
       }
     }, 1500);
     return () => clearTimeout(autoSaveTimerRef.current);
-  }, [counts, bisCounts, loaded, syncToken, syncGistId]);
+  }, [counts, bisCounts, loaded, syncToken, syncGistId, rateLimitedUntil]);
 
   // Guardar: siempre persiste counts + bisCounts juntos
   const saveAll = (nextCounts, nextBis) => {
@@ -1487,12 +1527,14 @@ export default function App() {
           connected={!!(syncToken && syncGistId)}
           status={syncStatus}
           error={syncError}
+          rateLimitedUntil={rateLimitedUntil}
           onClose={() => setSettingsOpen(false)}
           onCreateGist={handleCreateGist}
           onConnect={handleConnectGist}
           onSyncNow={handleSyncNow}
           onPullNow={handlePullNow}
           onDisconnect={handleDisconnect}
+          onClearRateLimit={clearRateLimit}
         />
       )}
 
@@ -2045,8 +2087,8 @@ function SyncBadge({ status, onClick }) {
 
 // ========== MODAL DE AJUSTES / SYNC ==========
 function SettingsModal({
-  initialToken, initialGistId, connected, status, error,
-  onClose, onCreateGist, onConnect, onSyncNow, onPullNow, onDisconnect,
+  initialToken, initialGistId, connected, status, error, rateLimitedUntil,
+  onClose, onCreateGist, onConnect, onSyncNow, onPullNow, onDisconnect, onClearRateLimit,
 }) {
   const [tokenInput, setTokenInput] = useState(initialToken || "");
   const [gistIdInput, setGistIdInput] = useState(initialGistId || "");
@@ -2055,6 +2097,10 @@ function SettingsModal({
   const canCreate = tokenInput.trim().length > 20 && !connected;
   const canConnect = tokenInput.trim().length > 20 && gistIdInput.trim().length > 0;
   const busy = status === "syncing";
+  const limitedActive = rateLimitedUntil > Date.now();
+  const limitedAtStr = limitedActive
+    ? new Date(rateLimitedUntil).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+    : "";
 
   return (
     <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 overflow-y-auto">
@@ -2129,7 +2175,24 @@ function SettingsModal({
             )}
           </div>
 
-          {error && (
+          {limitedActive && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200 space-y-2">
+              <p>
+                <b>Pausa por límite de la API de GitHub.</b> No se harán más peticiones hasta las <b>{limitedAtStr}</b>.
+                Los cambios siguen guardándose en este dispositivo y se subirán cuando se reanude.
+              </p>
+              {onClearRateLimit && (
+                <button
+                  onClick={onClearRateLimit}
+                  className="text-[11px] underline text-amber-300 hover:text-amber-200"
+                >
+                  Quitar la pausa manualmente (no recomendado)
+                </button>
+              )}
+            </div>
+          )}
+
+          {error && !limitedActive && (
             <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-xs text-red-300 break-words">
               {error}
             </div>
