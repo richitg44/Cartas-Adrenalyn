@@ -596,6 +596,8 @@ export default function App() {
   const autoSaveTimerRef = useRef(null);
   const skipNextAutoSyncRef = useRef(false);
   const didInitialPullRef = useRef(false);
+  const lastPullAtRef = useRef(0);
+  const isSyncingRef = useRef(false);
 
   // Carga inicial desde localStorage (con migración desde v1)
   useEffect(() => {
@@ -648,6 +650,8 @@ export default function App() {
     if (didInitialPullRef.current) return;
     if (!syncToken || !syncGistId) return;
     didInitialPullRef.current = true;
+    isSyncingRef.current = true;
+    lastPullAtRef.current = Date.now();
     (async () => {
       setSyncStatus("syncing");
       setSyncError("");
@@ -668,16 +672,25 @@ export default function App() {
       } catch (e) {
         setSyncStatus("error");
         setSyncError(e.message);
+      } finally {
+        isSyncingRef.current = false;
       }
     })();
   }, [loaded, syncToken, syncGistId]);
 
-  // Pull cada vez que la pestaña vuelve a estar visible (cambio de app, vuelta a la web…).
-  // Así el otro dispositivo ve en cuanto vuelves a él los cambios hechos desde el otro.
+  // Pull cuando la pestaña vuelve a estar visible (cambio de app, vuelta a la web…),
+  // pero como mucho una vez cada PULL_THROTTLE_MS para no agotar el rate limit
+  // de la API de GitHub (5.000 peticiones/hora). Tampoco se pisa con un sync en curso.
   useEffect(() => {
     if (!loaded || !syncToken || !syncGistId) return;
+    const PULL_THROTTLE_MS = 30_000;
     const onVisible = async () => {
       if (document.visibilityState !== "visible") return;
+      const now = Date.now();
+      if (now - lastPullAtRef.current < PULL_THROTTLE_MS) return;
+      if (isSyncingRef.current) return;
+      lastPullAtRef.current = now;
+      isSyncingRef.current = true;
       try {
         setSyncStatus("syncing");
         const data = await gistPull(syncToken, syncGistId);
@@ -697,13 +710,13 @@ export default function App() {
       } catch (e) {
         setSyncStatus("error");
         setSyncError(e.message);
+      } finally {
+        isSyncingRef.current = false;
       }
     };
     document.addEventListener("visibilitychange", onVisible);
-    window.addEventListener("focus", onVisible);
     return () => {
       document.removeEventListener("visibilitychange", onVisible);
-      window.removeEventListener("focus", onVisible);
     };
   }, [loaded, syncToken, syncGistId]);
 
